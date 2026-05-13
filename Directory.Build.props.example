@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <LethalCompanyDir>D:\Steam\steamapps\common\Lethal Company</LethalCompanyDir>
+    <BepInExCoreDir>D:\1New R2modman modpacks\LethalCompany\profiles\V81 Test Version 1203a2\BepInEx\core</BepInExCoreDir>
+  </PropertyGroup>
+</Project>

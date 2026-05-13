@@ -1,0 +1,15 @@
+bin/
+obj/
+build_tmpbin/
+build_tmpobj/
+*.user
+*.suo
+*.rsuser
+.vs/
+Directory.Build.props
+*.dll
+*.pdb
+*.zip
+*.log
+Thumbs.db
+Desktop.ini

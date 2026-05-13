@@ -1,0 +1,29 @@
+name: Validate repository contents
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  repository-contents:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Reject generated or redistributed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden="$(find . \
+            -path './.git' -prune -o \
+            \( -iname '*.dll' -o -iname '*.pdb' -o -iname '*.zip' -o -iname '*.log' \) -print)"
+          forbidden_dirs="$(find . \
+            -path './.git' -prune -o \
+            -type d \( -iname 'bin' -o -iname 'obj' -o -iname 'build_tmpbin' -o -iname 'build_tmpobj' -o -iname 'Assembly-CSharp' \) -print)"
+
+          if [ -n "$forbidden" ] || [ -n "$forbidden_dirs" ]; then
+            printf 'Forbidden files:\n%s\n' "$forbidden"
+            printf 'Forbidden directories:\n%s\n' "$forbidden_dirs"
+            exit 1
+          fi
