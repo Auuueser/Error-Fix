@@ -185,7 +185,6 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 {
     private static readonly WarningLimiter Warnings = new();
     private static readonly FieldInfo RpcExecStageField = AccessTools.Field(typeof(NetworkBehaviour), "__rpc_exec_stage");
-    private static readonly FieldInfo ThrowingObjectField = AccessTools.Field(typeof(PlayerControllerB), "throwingObject");
     private static bool _rpcStageInitialized;
     private static bool _rpcStageReady;
     private static object _rpcExecStageSend;
@@ -401,9 +400,9 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 
     private static void SetThrowingObject(PlayerControllerB player, bool value)
     {
-        if (player != null && ThrowingObjectField != null)
+        if (player != null)
         {
-            ThrowingObjectField.SetValue(player, value);
+            player.throwingObject = value;
         }
     }
 

@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using HarmonyLib;
 using GameNetcodeStuff;
 
@@ -89,12 +88,10 @@ internal static class GrabbableObjectActivateItemRpcPatch
 
 internal static class JetpackItemKnownDependencyGuard
 {
-    private static readonly FieldInfo PreviousPlayerHeldByField = AccessTools.Field(typeof(JetpackItem), "previousPlayerHeldBy");
-
     internal static bool HasKnownMissingDeactivateDependency(JetpackItem jetpack)
     {
         return jetpack == null ||
-            GetPreviousPlayerHeldBy(jetpack) == null ||
+            jetpack.previousPlayerHeldBy == null ||
             jetpack.jetpackBeepsAudio == null ||
             jetpack.jetpackAudio == null ||
             jetpack.smokeTrailParticle == null;
@@ -107,10 +104,5 @@ internal static class JetpackItemKnownDependencyGuard
             jetpack.jetpackAudio == null ||
             jetpack.smokeTrailParticle == null ||
             (jetpack.streamlineJetpack && (StartOfRound.Instance == null || GameNetworkManager.Instance == null || GameNetworkManager.Instance.localPlayerController == null));
-    }
-
-    private static PlayerControllerB GetPreviousPlayerHeldBy(JetpackItem jetpack)
-    {
-        return jetpack != null && PreviousPlayerHeldByField != null ? PreviousPlayerHeldByField.GetValue(jetpack) as PlayerControllerB : null;
     }
 }

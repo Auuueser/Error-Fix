@@ -12,6 +12,12 @@ internal static class DisabledAudioSourcePlayGuardPatch
     private static readonly WarningLimiter Warnings = new();
     private static readonly WarningLimiter GuardFailureWarnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.AudioSourcePlaybackGuardMode);
+    }
+
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
     {
@@ -87,6 +93,12 @@ internal static class AudioSourcePlayOneShotNullClipGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
     private static readonly WarningLimiter GuardFailureWarnings = new();
+
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.AudioSourcePlaybackGuardMode);
+    }
 
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()

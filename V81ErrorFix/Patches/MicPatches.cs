@@ -23,8 +23,7 @@ internal static class DisplayPlayerMicVolumeInitMicPatch
             return false;
         }
 
-        Traverse fields = Traverse.Create(__instance);
-        string currentDevice = fields.Field("_device").GetValue<string>();
+        string currentDevice = __instance._device;
         if (IsValidMicrophoneDevice(currentDevice) && Microphone.IsRecording(currentDevice))
         {
             Microphone.End(currentDevice);
@@ -34,13 +33,13 @@ internal static class DisplayPlayerMicVolumeInitMicPatch
         {
             Microphone.GetDeviceCaps(device, out int minFreq, out int maxFreq);
             int frequency = maxFreq <= 0 ? 44100 : Mathf.Clamp(44100, Mathf.Max(minFreq, 1), maxFreq);
-            fields.Field("_device").SetValue(device);
-            fields.Field("_clipRecord").SetValue(Microphone.Start(device, loop: true, 1, frequency));
+            __instance._device = device;
+            __instance._clipRecord = Microphone.Start(device, loop: true, 1, frequency);
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
         {
             Warn($"Skipping microphone preview for unavailable device '{device}': {ex.Message}");
-            fields.Field("_clipRecord").SetValue(null);
+            __instance._clipRecord = null;
         }
 
         return false;
@@ -74,7 +73,7 @@ internal static class DisplayPlayerMicVolumeStopMicrophonePatch
 
         try
         {
-            string device = Traverse.Create(__instance).Field("_device").GetValue<string>();
+            string device = __instance._device;
             if (DisplayPlayerMicVolumeInitMicPatch.IsValidMicrophoneDevice(device) && Microphone.IsRecording(device))
             {
                 Microphone.End(device);
@@ -108,8 +107,7 @@ internal static class DisplayPlayerMicVolumeLevelMaxPatch
 
         try
         {
-            AudioClip clipRecord = Traverse.Create(__instance).Field("_clipRecord").GetValue<AudioClip>();
-            return clipRecord != null;
+            return __instance._clipRecord != null;
         }
         catch (Exception ex)
         {

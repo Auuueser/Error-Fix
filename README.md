@@ -14,15 +14,16 @@ Error Fix is not affiliated with, endorsed by, or maintained by Zeekerss, Unity 
 
 ## Main fixes
 
-- Guards common Unity audio warnings such as disabled audio sources and null `AudioClip` playback.
-- Guards invalid particle mesh shape sources, including unreadable meshes and zero-area meshes.
+- Optionally guards common Unity audio warnings such as disabled audio sources and null `AudioClip` playback.
+- Optionally guards invalid particle mesh shape sources, including unreadable meshes and zero-area meshes.
 - Filters unreadable mesh sources during runtime NavMesh source collection.
 - Adds a general `EnemyAI` NavMesh fallback for agents that try to move while off the NavMesh.
-- Guards known Netcode edge cases around client-side ragdoll destruction, unspawned object reparenting, and selected RPC null/index failures, with lifecycle-aware limits.
-- Guards player ragdoll tag lookups for undefined `PlayerRagdoll4+` tags without rewriting tags that are actually defined.
+- Optionally guards known Netcode edge cases around client-side ragdoll destruction, with lifecycle-aware limits; non-global Netcode guards remain active where targeted.
+- Optionally guards global player ragdoll tag lookups/setters for undefined `PlayerRagdoll4+` tags without rewriting tags that are actually defined.
 - Guards known item, suit, quicksand, entrance teleport, terminal, chat, ambience, jetpack, soccer ball, and enemy update errors.
 - Uses version-aware defaults for sensitive replacements such as `EntranceTeleport.Update`.
-- Keeps high-risk guards in `Auto` mode by default so verified game assemblies receive the guarded path while unknown assemblies fall back to vanilla unless explicitly enabled.
+- Keeps performance-sensitive global guards disabled by default, including `AudioSource.Play*`, global player-ragdoll tag lookup/setter hooks, the global `UnityEngine.Object.Destroy` hook, and particle mesh scene scans.
+- Uses `Auto` only for targeted version-aware replacements where the verified game assembly can be checked before patching.
 - Leaves EnemyAI warp recovery disabled by default; off-NavMesh movement is still guarded, but position recovery must be enabled by configuration.
 
 For the full patch index, see [PatchCatalog.md](V81ErrorFix/PatchCatalog.md).
@@ -30,8 +31,10 @@ For the full patch index, see [PatchCatalog.md](V81ErrorFix/PatchCatalog.md).
 ## Configuration notes
 
 - Sensitive guards use `PatchEnableMode`: `Auto` enables verified game assemblies, `Enabled` forces the guard on, and `Disabled` turns it off.
-- `GlobalDestroyGuardMode` is the primary switch for the spawned ragdoll destroy guard.
+- `GlobalDestroyGuardMode=Enabled` is required to install the spawned ragdoll global destroy guard. `Auto` is treated as disabled for this global hook.
+- `AudioSourcePlaybackGuardMode`, `PlayerRagdollGlobalTagGuardMode`, and `ParticleMeshShapeGuardMode` also require `Enabled`; `Auto` is treated as disabled for these performance-sensitive global guards.
 - `EnableGlobalDestroyGuard` is retained as a legacy compatibility switch for older local configs.
+- Performance-sensitive global guards are evaluated during plugin startup. Change their config values before launching the game or restart after editing them.
 - EnemyAI warp recovery is disabled by default; enable `AllowEnemyAIWarp` only after testing it in the target modpack.
 
 ## Optional compatibility targets
@@ -61,6 +64,8 @@ The project expects these local files:
 - `Assembly-CSharp.dll`, Unity assemblies, and Netcode assemblies under `LethalCompanyDir\Lethal Company_Data\Managed`.
 
 Do not copy BepInEx or Harmony files into the Steam game directory just to build this project.
+
+The build uses `BepInEx.AssemblyPublicizer.MSBuild` only at compile time so selected `Assembly-CSharp` members can be accessed directly instead of through hot-path private-field reflection. The package is excluded from runtime assets and is not bundled with the mod output.
 
 Build output is written to `V81ErrorFix\build_tmpbin`. The repository intentionally does not track compiled DLLs, game assemblies, decompiled game source, Thunderstore package contents, third-party mod binaries, or local build artifacts.
 

@@ -19,7 +19,17 @@ public sealed class Plugin : BaseUnityPlugin
         GameAssemblyIdentity.Initialize();
         SceneLifecycle.Register();
         Harmony.CreateAndPatchAll(typeof(Plugin).Assembly, PluginGuid);
-        ParticleMeshShapeGuard.EnsureCreated();
+        if (PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.ParticleMeshShapeGuardMode))
+        {
+            ParticleMeshShapeGuard.EnsureCreated();
+        }
+
+        Logger.LogInfo(
+            $"Performance-sensitive guards: AudioSource={ErrorFixConfig.AudioSourcePlaybackGuardMode.Value}; " +
+            $"PlayerRagdollGlobalTag={ErrorFixConfig.PlayerRagdollGlobalTagGuardMode.Value}; " +
+            $"ParticleMeshShape={ErrorFixConfig.ParticleMeshShapeGuardMode.Value}; " +
+            $"GlobalDestroy={ErrorFixConfig.GlobalDestroyGuardMode.Value} " +
+            $"(installed={NetworkObjectDestroyGuardPatch.ShouldPatch(ErrorFixConfig.GlobalDestroyGuardMode.Value, ErrorFixConfig.EnableGlobalDestroyGuard.Value, GameAssemblyIdentity.IsVerified)}).");
         Logger.LogInfo($"{PluginName} {PluginVersion} loaded. Assembly verified: {GameAssemblyIdentity.IsVerified}; MVID: {GameAssemblyIdentity.CurrentAssemblyMvid}; SHA256: {GameAssemblyIdentity.CurrentAssemblySha256 ?? "unknown"}.");
     }
 }

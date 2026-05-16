@@ -18,6 +18,15 @@ internal static class NetworkObjectDestroyGuardPatch
     private static bool _loggedBlockedDestroyStackTrace;
     private static float _nextWarningCacheCleanupTime;
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return ShouldPatch(
+            ErrorFixConfig.GlobalDestroyGuardMode?.Value ?? PatchEnableMode.Disabled,
+            ErrorFixConfig.EnableGlobalDestroyGuard?.Value ?? false,
+            GameAssemblyIdentity.IsVerified);
+    }
+
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
     {
@@ -40,12 +49,10 @@ internal static class NetworkObjectDestroyGuardPatch
 
     private static bool ShouldAllowDestroy(UnityEngine.Object obj)
     {
-        if (!PatchModeUtility.IsEnabled(ErrorFixConfig.GlobalDestroyGuardMode))
-        {
-            return true;
-        }
-
-        if (ErrorFixConfig.EnableGlobalDestroyGuard != null && !ErrorFixConfig.EnableGlobalDestroyGuard.Value)
+        if (!ShouldPatch(
+                ErrorFixConfig.GlobalDestroyGuardMode?.Value ?? PatchEnableMode.Disabled,
+                ErrorFixConfig.EnableGlobalDestroyGuard?.Value ?? false,
+                GameAssemblyIdentity.IsVerified))
         {
             return true;
         }
@@ -91,6 +98,11 @@ internal static class NetworkObjectDestroyGuardPatch
 
         WarnBlockedDestroy(networkObject);
         return false;
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool legacySwitchEnabled, bool isVerifiedAssembly)
+    {
+        return legacySwitchEnabled && mode == PatchEnableMode.Enabled;
     }
 
     internal static void ClearCaches()

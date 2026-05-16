@@ -6,10 +6,24 @@ using UnityEngine;
 
 namespace V81ErrorFix;
 
+internal static class PlayerRagdollGlobalTagGuard
+{
+    internal static bool ShouldPatch()
+    {
+        return PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.PlayerRagdollGlobalTagGuardMode);
+    }
+}
+
 [HarmonyPatch]
 internal static class PlayerRagdollCompareTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
+
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
 
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
@@ -41,6 +55,12 @@ internal static class PlayerRagdollFindWithTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
+
     private static Exception Finalizer(string tag, Exception __exception, ref GameObject __result)
     {
         if (__exception == null)
@@ -64,6 +84,12 @@ internal static class PlayerRagdollFindGameObjectWithTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
+
     private static Exception Finalizer(string tag, Exception __exception, ref GameObject __result)
     {
         if (__exception == null)
@@ -86,6 +112,12 @@ internal static class PlayerRagdollFindGameObjectWithTagGuardPatch
 internal static class PlayerRagdollFindGameObjectsWithTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
+
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
 
     private static Exception Finalizer(string tag, Exception __exception, ref GameObject[] __result)
     {
@@ -227,6 +259,12 @@ internal static class DeadBodyInfoPlayerRagdollTagGuardPatch
 internal static class GameObjectPlayerRagdollTagSetterGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
+
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
 
     private static Exception Finalizer(GameObject __instance, string value, Exception __exception)
     {

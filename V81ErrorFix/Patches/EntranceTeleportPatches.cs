@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
@@ -9,10 +8,6 @@ namespace V81ErrorFix;
 [HarmonyPatch(typeof(EntranceTeleport), "Update")]
 internal static class EntranceTeleportUpdatePatch
 {
-    private static readonly FieldInfo TriggerScriptField = AccessTools.Field(typeof(EntranceTeleport), "triggerScript");
-    private static readonly FieldInfo CheckForEnemiesIntervalField = AccessTools.Field(typeof(EntranceTeleport), "checkForEnemiesInterval");
-    private static readonly FieldInfo EnemyNearLastCheckField = AccessTools.Field(typeof(EntranceTeleport), "enemyNearLastCheck");
-    private static readonly FieldInfo GotExitPointField = AccessTools.Field(typeof(EntranceTeleport), "gotExitPoint");
     private static readonly WarningLimiter Warnings = new();
     private static readonly ConditionalWeakTable<EntranceTeleport, HoverTipState> HoverTipStates = new();
 
@@ -28,26 +23,24 @@ internal static class EntranceTeleportUpdatePatch
             return false;
         }
 
-        InteractTrigger triggerScript = (InteractTrigger)TriggerScriptField.GetValue(__instance);
+        InteractTrigger triggerScript = __instance.triggerScript;
         if (triggerScript == null)
         {
             Warnings.Warn("missing-trigger", "Skipped EntranceTeleport.Update guard because triggerScript was missing.");
             return false;
         }
 
-        float checkForEnemiesInterval = (float)CheckForEnemiesIntervalField.GetValue(__instance);
-        if (checkForEnemiesInterval > 0f)
+        if (__instance.checkForEnemiesInterval > 0f)
         {
-            CheckForEnemiesIntervalField.SetValue(__instance, checkForEnemiesInterval - Time.deltaTime);
+            __instance.checkForEnemiesInterval -= Time.deltaTime;
             return false;
         }
 
-        bool gotExitPoint = (bool)GotExitPointField.GetValue(__instance);
-        if (!gotExitPoint)
+        if (!__instance.gotExitPoint)
         {
             if (__instance.FindExitPoint())
             {
-                GotExitPointField.SetValue(__instance, true);
+                __instance.gotExitPoint = true;
             }
             else
             {
@@ -63,7 +56,7 @@ internal static class EntranceTeleportUpdatePatch
             return false;
         }
 
-        CheckForEnemiesIntervalField.SetValue(__instance, 1f);
+        __instance.checkForEnemiesInterval = 1f;
         bool enemyNear = false;
         if (RoundManager.Instance.SpawnedEnemies != null)
         {
@@ -87,16 +80,15 @@ internal static class EntranceTeleportUpdatePatch
             }
         }
 
-        bool enemyNearLastCheck = (bool)EnemyNearLastCheckField.GetValue(__instance);
-        if (enemyNear && !enemyNearLastCheck)
+        if (enemyNear && !__instance.enemyNearLastCheck)
         {
-            EnemyNearLastCheckField.SetValue(__instance, true);
+            __instance.enemyNearLastCheck = true;
             SaveDefaultHoverTip(__instance, triggerScript);
             triggerScript.hoverTip = "[Near activity detected!]";
         }
-        else if (!enemyNear && enemyNearLastCheck)
+        else if (!enemyNear && __instance.enemyNearLastCheck)
         {
-            EnemyNearLastCheckField.SetValue(__instance, false);
+            __instance.enemyNearLastCheck = false;
             triggerScript.hoverTip = GetDefaultHoverTip(__instance, triggerScript);
         }
 
@@ -109,7 +101,7 @@ internal static class EntranceTeleportUpdatePatch
             IsPatchEnabled() &&
             (__instance == null ||
              RoundManager.Instance == null ||
-             TriggerScriptField.GetValue(__instance) == null ||
+             __instance.triggerScript == null ||
              __instance.exitScript == null ||
              __instance.exitScript.entrancePoint == null));
     }

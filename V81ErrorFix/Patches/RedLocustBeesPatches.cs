@@ -29,7 +29,7 @@ internal static class RedLocustBeesIsHiveMissingPatch
         }
 
         float distanceToLastKnownHive = Vector3.Distance(__instance.eye.position, __instance.lastKnownHivePosition);
-        if (!Traverse.Create(__instance).Field("syncedLastKnownHivePosition").GetValue<bool>())
+        if (!__instance.syncedLastKnownHivePosition)
         {
             __result = false;
             return false;
@@ -118,8 +118,7 @@ internal static class RedLocustBeesDoAIIntervalPatch
             return false;
         }
 
-        bool hasSpawnedHive = Traverse.Create(__instance).Field("hasSpawnedHive").GetValue<bool>();
-        if (!hasSpawnedHive || __instance.hive != null)
+        if (!__instance.hasSpawnedHive || __instance.hive != null)
         {
             return true;
         }

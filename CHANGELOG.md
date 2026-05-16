@@ -11,7 +11,9 @@ Maintenance release focused on narrowing high-risk guards and improving release 
 - Added configurable lifecycle destroy window handling for scene load, scene unload, and active-scene transitions.
 - Narrowed `DeadBodyInfo.Start` out-of-range suppression to known player ragdoll/index contexts and added contextual warning details.
 - Improved `TerminalAccessibleObject.InitializeValues` unknown-exception warning keys while continuing to skip unsafe vanilla retries.
-- Kept high-risk guards behind `PatchEnableMode.Auto` verified-assembly defaults unless explicitly enabled.
+- Changed performance-sensitive global guards to `Enabled`-only startup gates, including `AudioSource.Play*`, global player-ragdoll tag lookup/setter hooks, particle mesh scene scans, and the global `UnityEngine.Object.Destroy` hook.
+- Treated `Auto` as disabled for those performance-sensitive global guards so existing configs do not continue installing the global destroy hook unless explicitly changed to `Enabled`.
+- Added build-time `BepInEx.AssemblyPublicizer.MSBuild` usage so selected `Assembly-CSharp` fields can be accessed directly without adding runtime publicizer dependencies.
 
 ## 0.0.2 - 2026-05-13
 

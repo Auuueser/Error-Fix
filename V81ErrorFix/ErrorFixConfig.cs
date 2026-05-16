@@ -16,6 +16,9 @@ internal static class ErrorFixConfig
     internal static ConfigEntry<bool> AllowDestroyDuringSceneUnload;
     internal static ConfigEntry<float> LifecycleDestroyWindowSeconds;
     internal static ConfigEntry<bool> LogBlockedDestroyStackTraceOnce;
+    internal static ConfigEntry<PatchEnableMode> AudioSourcePlaybackGuardMode;
+    internal static ConfigEntry<PatchEnableMode> PlayerRagdollGlobalTagGuardMode;
+    internal static ConfigEntry<PatchEnableMode> ParticleMeshShapeGuardMode;
     internal static ConfigEntry<PatchEnableMode> EntranceTeleportUpdateGuardMode;
     internal static ConfigEntry<PatchEnableMode> ThrowObjectClientRpcGuardMode;
     internal static ConfigEntry<PatchEnableMode> VoiceRefreshFallbackMode;
@@ -36,8 +39,8 @@ internal static class ErrorFixConfig
         GlobalDestroyGuardMode = config.Bind(
             "NetworkObjectDestroy",
             "GlobalDestroyGuardMode",
-            PatchEnableMode.Auto,
-            "Auto enables the spawned ragdoll Destroy guard only for the verified game assembly. Enabled forces it on; Disabled turns it off.");
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the global UnityEngine.Object.Destroy hook. Auto is treated as disabled for this global hook to avoid upgrade-time performance surprises. Requires restart.");
 
         AllowDestroyDuringSceneUnload = config.Bind(
             "NetworkObjectDestroy",
@@ -56,6 +59,24 @@ internal static class ErrorFixConfig
             "LogBlockedDestroyStackTraceOnce",
             true,
             "Logs one stack trace for the first blocked spawned ragdoll Destroy call.");
+
+        AudioSourcePlaybackGuardMode = config.Bind(
+            "Performance",
+            "AudioSourcePlaybackGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs global AudioSource.Play* hooks. Auto is treated as disabled for this global hook. Requires restart.");
+
+        PlayerRagdollGlobalTagGuardMode = config.Bind(
+            "Performance",
+            "PlayerRagdollGlobalTagGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs global GameObject/Component tag lookup, CompareTag, and tag setter guards. Auto is treated as disabled for these global hooks. The targeted DeadBodyInfo ragdoll guard remains active. Requires restart.");
+
+        ParticleMeshShapeGuardMode = config.Bind(
+            "Performance",
+            "ParticleMeshShapeGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled starts periodic ParticleSystem scene scans. Auto is treated as disabled for this scene scan. Requires restart.");
 
         EntranceTeleportUpdateGuardMode = config.Bind(
             "EntranceTeleport",
