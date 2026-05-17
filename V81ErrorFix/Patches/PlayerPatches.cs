@@ -1,31 +1,76 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Reflection;
-using BepInEx;
 using HarmonyLib;
-using Unity.AI.Navigation;
 using UnityEngine;
 using GameNetcodeStuff;
 using Unity.Netcode;
-using UnityEngine.AI;
 
 namespace V81ErrorFix;
 
 [HarmonyPatch(typeof(PlayerControllerB), "NearOtherPlayers")]
 internal static class PlayerControllerBNearOtherPlayersPatch
 {
+    private static readonly WarningLimiter Warnings = new();
+
     private static bool Prefix(PlayerControllerB __instance, float checkRadius, ref bool __result)
     {
         try
         {
-            return CheckNearOtherPlayersSafely(__instance, checkRadius, ref __result);
+            if (!HasUnsafeDependencies(__instance, out string reason))
+            {
+                return true;
+            }
+
+            bool runOriginal = CheckNearOtherPlayersSafely(__instance, checkRadius, ref __result);
+            Warnings.Warn($"near-other-players|{reason}", $"Used safe PlayerControllerB.NearOtherPlayers fallback because {reason}.");
+            return runOriginal;
         }
         catch (Exception ex)
         {
             __result = false;
-            return NullRefGuard.Suppress(ex, "PlayerControllerB.NearOtherPlayers", () =>
-                __instance == null || StartOfRound.Instance == null || StartOfRound.Instance.allPlayerScripts == null) == null ? false : true;
+            Warnings.Warn("near-other-players|guard-failure", $"Skipped PlayerControllerB.NearOtherPlayers because the guard failed safely: {ex.GetType().Name}.");
+            return false;
         }
+    }
+
+    private static bool HasUnsafeDependencies(PlayerControllerB player, out string reason)
+    {
+        if (player == null)
+        {
+            reason = "player was null";
+            return true;
+        }
+
+        if (player.transform == null)
+        {
+            reason = "player transform was missing";
+            return true;
+        }
+
+        if (StartOfRound.Instance == null || StartOfRound.Instance.allPlayerScripts == null)
+        {
+            reason = "StartOfRound player list was missing";
+            return true;
+        }
+
+        PlayerControllerB[] players = StartOfRound.Instance.allPlayerScripts;
+        for (int i = 0; i < players.Length; i++)
+        {
+            PlayerControllerB otherPlayer = players[i];
+            if (otherPlayer == null)
+            {
+                reason = $"allPlayerScripts[{i}] was null";
+                return true;
+            }
+
+            if (otherPlayer != player && otherPlayer.isPlayerControlled && otherPlayer.transform == null)
+            {
+                reason = $"allPlayerScripts[{i}].transform was missing";
+                return true;
+            }
+        }
+
+        reason = string.Empty;
+        return false;
     }
 
     private static bool CheckNearOtherPlayersSafely(PlayerControllerB __instance, float checkRadius, ref bool __result)
@@ -65,7 +110,12 @@ internal static class PlayerControllerBPlayJumpAudioPatch
     {
         try
         {
-            PlayJumpAudioSafely(__instance);
+            if (!TryGetUnsafeJumpAudioFallback(__instance, out AudioClip fallbackClip, out string reason))
+            {
+                return true;
+            }
+
+            PlayJumpAudioSafely(__instance, fallbackClip, reason);
         }
         catch (Exception ex)
         {
@@ -75,82 +125,85 @@ internal static class PlayerControllerBPlayJumpAudioPatch
         return false;
     }
 
-    private static void PlayJumpAudioSafely(PlayerControllerB player)
+    private static void PlayJumpAudioSafely(PlayerControllerB player, AudioClip fallbackClip, string reason)
     {
-        if (player == null || player.movementAudio == null || StartOfRound.Instance == null)
+        if (player == null || player.movementAudio == null || fallbackClip == null)
         {
-            Warn("Skipped PlayerControllerB.PlayJumpAudio because audio dependencies were not ready.");
+            Warn($"Skipped PlayerControllerB.PlayJumpAudio because audio dependencies were not ready: {reason}.");
             return;
         }
 
-        AudioClip jumpAudio = TryGetSuitJumpAudio(player, out string missingDependency) ?? TryGetDefaultJumpAudio(ref missingDependency);
-        if (jumpAudio == null)
-        {
-            Warn($"Skipped PlayerControllerB.PlayJumpAudio because no jump audio clip was available: {missingDependency}.");
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(missingDependency))
-        {
-            Warn($"Used default jump audio because suit jump audio was not available: {missingDependency}.");
-        }
-
-        player.movementAudio.PlayOneShot(jumpAudio);
+        Warn($"Used default jump audio because vanilla suit jump audio dependencies were unsafe: {reason}.");
+        player.movementAudio.PlayOneShot(fallbackClip);
     }
 
-    private static Exception Finalizer(Exception __exception)
+    private static Exception Finalizer(PlayerControllerB __instance, Exception __exception)
     {
-        if (__exception is ArgumentOutOfRangeException || __exception is NullReferenceException)
+        if ((__exception is ArgumentOutOfRangeException || __exception is NullReferenceException) &&
+            TryGetUnsafeJumpAudioFallback(__instance, out _, out string reason))
         {
-            Warn($"Suppressed PlayerControllerB.PlayJumpAudio {__exception.GetType().Name}.");
+            Warn($"Suppressed PlayerControllerB.PlayJumpAudio {__exception.GetType().Name} after known unsafe jump audio dependencies were detected: {reason}.");
             return null;
         }
 
         return __exception;
     }
 
-    private static AudioClip TryGetSuitJumpAudio(PlayerControllerB player, out string missingDependency)
+    internal static bool TryGetUnsafeJumpAudioFallback(PlayerControllerB player, out AudioClip fallbackClip, out string reason)
     {
-        missingDependency = string.Empty;
+        fallbackClip = TryGetDefaultJumpAudio();
+        if (player == null)
+        {
+            reason = "player was null";
+            return true;
+        }
+
+        if (player.movementAudio == null)
+        {
+            reason = "movementAudio was missing";
+            return true;
+        }
+
+        if (StartOfRound.Instance == null)
+        {
+            reason = "StartOfRound.Instance was missing";
+            return true;
+        }
+
         if (StartOfRound.Instance.unlockablesList == null || StartOfRound.Instance.unlockablesList.unlockables == null)
         {
-            missingDependency = "StartOfRound.Instance.unlockablesList";
-            return null;
+            reason = "StartOfRound.Instance.unlockablesList was missing";
+            return true;
         }
 
         if (player.currentSuitID < 0 || player.currentSuitID >= StartOfRound.Instance.unlockablesList.unlockables.Count)
         {
-            missingDependency = $"currentSuitID {player.currentSuitID} outside unlockables count {StartOfRound.Instance.unlockablesList.unlockables.Count}";
-            return null;
+            reason = $"currentSuitID {player.currentSuitID} outside unlockables count {StartOfRound.Instance.unlockablesList.unlockables.Count}";
+            return true;
         }
 
         UnlockableItem unlockable = StartOfRound.Instance.unlockablesList.unlockables[player.currentSuitID];
         if (unlockable == null)
         {
-            missingDependency = $"unlockables[{player.currentSuitID}]";
-            return null;
+            reason = $"unlockables[{player.currentSuitID}] was null";
+            return true;
         }
 
-        AudioClip suitJumpAudio = unlockable.jumpAudio;
-        if (suitJumpAudio == null)
+        if (unlockable.jumpAudio == null)
         {
-            missingDependency = $"unlockables[{player.currentSuitID}].jumpAudio";
+            reason = fallbackClip != null
+                ? $"unlockables[{player.currentSuitID}].jumpAudio was null; using StartOfRound.playerJumpSFX"
+                : $"unlockables[{player.currentSuitID}].jumpAudio was null and StartOfRound.playerJumpSFX was missing";
+            return true;
         }
 
-        return suitJumpAudio;
+        reason = string.Empty;
+        return false;
     }
 
-    private static AudioClip TryGetDefaultJumpAudio(ref string missingDependency)
+    private static AudioClip TryGetDefaultJumpAudio()
     {
-        if (StartOfRound.Instance == null || StartOfRound.Instance.playerJumpSFX == null)
-        {
-            missingDependency = string.IsNullOrEmpty(missingDependency)
-                ? "StartOfRound.Instance.playerJumpSFX"
-                : $"{missingDependency}; StartOfRound.Instance.playerJumpSFX";
-            return null;
-        }
-
-        return StartOfRound.Instance.playerJumpSFX;
+        return StartOfRound.Instance != null ? StartOfRound.Instance.playerJumpSFX : null;
     }
 
     internal static void Warn(string message)
@@ -168,15 +221,68 @@ internal static class PlayerControllerBPlayJumpAudioPatch
 [HarmonyPatch(typeof(PlayerControllerB), "PlayerJumpedClientRpc")]
 internal static class PlayerControllerBPlayerJumpedClientRpcPatch
 {
-    private static Exception Finalizer(Exception __exception)
+    private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
+    private static readonly WarningLimiter NonExecuteStageWarnings = new(maxWarnings: 1);
+
+    private static Exception Finalizer(PlayerControllerB __instance, Exception __exception)
     {
-        if (__exception is ArgumentOutOfRangeException || __exception is NullReferenceException)
+        if (__exception is not ArgumentOutOfRangeException && __exception is not NullReferenceException)
         {
-            PlayerControllerBPlayJumpAudioPatch.Warn($"Suppressed PlayerControllerB.PlayerJumpedClientRpc {__exception.GetType().Name} from jump audio playback.");
+            return __exception;
+        }
+
+        if (!RpcExecStageUtility.ShouldAllowClientRpcSuppression(__instance, "PlayerControllerB.PlayerJumpedClientRpc", __exception, NonExecuteStageWarnings))
+        {
+            return __exception;
+        }
+
+        if (IsKnownSafeJumpRpcException(__instance, out string reason))
+        {
+            Warnings.Warn($"PlayerJumpedClientRpc|{reason}", $"Suppressed PlayerControllerB.PlayerJumpedClientRpc {__exception.GetType().Name} after known unsafe jump dependencies were detected: {reason}.");
             return null;
         }
 
+        UnknownWarnings.Warn($"PlayerJumpedClientRpc|{__exception.GetType().Name}", () => $"Unhandled PlayerControllerB.PlayerJumpedClientRpc {__exception.GetType().Name}; returning original exception. First stack fingerprint: {Fingerprint(__exception)}. First detail: {__exception}");
         return __exception;
+    }
+
+    private static bool IsKnownSafeJumpRpcException(PlayerControllerB player, out string reason)
+    {
+        if (player != null && player.IsOwner)
+        {
+            reason = "owner path does not call jump audio";
+            return false;
+        }
+
+        if (StartOfRound.Instance == null)
+        {
+            reason = "StartOfRound.Instance was missing";
+            return true;
+        }
+
+        if (StartOfRound.Instance.PlayerJumpEvent == null)
+        {
+            reason = "StartOfRound.PlayerJumpEvent was missing";
+            return true;
+        }
+
+        return PlayerControllerBPlayJumpAudioPatch.TryGetUnsafeJumpAudioFallback(player, out _, out reason);
+    }
+
+    private static string Fingerprint(Exception exception)
+    {
+        string stackTrace = exception?.StackTrace;
+        if (!string.IsNullOrEmpty(stackTrace))
+        {
+            string[] stackLines = stackTrace.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            if (stackLines.Length > 0)
+            {
+                return stackLines[0];
+            }
+        }
+
+        return exception?.GetType().Name ?? "unknown";
     }
 }
 
@@ -184,12 +290,6 @@ internal static class PlayerControllerBPlayerJumpedClientRpcPatch
 internal static class PlayerControllerBThrowObjectClientRpcPatch
 {
     private static readonly WarningLimiter Warnings = new();
-    private static readonly FieldInfo RpcExecStageField = AccessTools.Field(typeof(NetworkBehaviour), "__rpc_exec_stage");
-    private static readonly FieldInfo ThrowingObjectField = AccessTools.Field(typeof(PlayerControllerB), "throwingObject");
-    private static bool _rpcStageInitialized;
-    private static bool _rpcStageReady;
-    private static object _rpcExecStageSend;
-    private static bool _loggedRpcStageValues;
 
     private static bool Prefix(
         PlayerControllerB __instance,
@@ -204,22 +304,31 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
             return true;
         }
 
-        if (!EnsureRpcExecStageReady() || !IsExecutingClientRpc(__instance))
+        if (!RpcExecStageUtility.TryIsExecuting(__instance, out bool isExecuting) || !isExecuting)
         {
             return true;
         }
 
-        object oldRpcStage = GetRpcExecStage(__instance);
+        object oldRpcStage = null;
         bool rpcStageChanged = false;
         bool stateMutated = false;
         try
         {
+            if (!ShouldHandleThrowObjectClientRpc(__instance, grabbedObject, out string unsafeReason))
+            {
+                return true;
+            }
+
+            RpcExecStageUtility.TryGetStage(__instance, out oldRpcStage);
+            Warnings.Warn($"guarded-throw|{GetPlayerId(__instance)}|{unsafeReason}", $"Using guarded ThrowObjectClientRpc path for player #{GetPlayerId(__instance)} because {unsafeReason}.");
             HandleThrowObjectClientRpcSafely(__instance, droppedInElevator, droppedInShipRoom, targetFloorPosition, grabbedObject, floorYRot, ref rpcStageChanged, ref stateMutated);
         }
         catch (Exception ex)
         {
             if (stateMutated)
             {
+                // Vanilla sets __rpc_exec_stage back to Send before mutating held-object state.
+                // After partial mutation, do not restore Execute or re-enter vanilla; doing so can discard the same object twice.
                 SetRpcExecStageSend(__instance);
                 TryFinishThrowingIfOwner(__instance);
                 Warnings.Warn("guard-failed-after-mutation", $"ThrowObjectClientRpc guard failed after partial state changes; skipped vanilla to avoid double-discard: {ex.GetType().Name}.");
@@ -228,13 +337,89 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 
             if (rpcStageChanged)
             {
-                SetRpcExecStage(__instance, oldRpcStage);
+                // Only restore the previous Execute stage when no state changed and vanilla will run normally.
+                RpcExecStageUtility.TrySetStage(__instance, oldRpcStage);
             }
 
             Warnings.Warn("guard-failed-before-mutation", $"ThrowObjectClientRpc guard failed before changing held object state and allowed vanilla to run: {ex.GetType().Name}.");
             return true;
         }
 
+        // V81 generated code sets __rpc_exec_stage to Execute in __rpc_handler_3943098567,
+        // calls ThrowObjectClientRpc, then sets it to Send after a normal return. The generated
+        // ThrowObjectClientRpc body also sets Send before mutating held-object state, so this
+        // replacement intentionally leaves Send when it returns false after handling the discard.
+        return false;
+    }
+
+    private static bool ShouldHandleThrowObjectClientRpc(PlayerControllerB player, NetworkObjectReference grabbedObject, out string reason)
+    {
+        reason = string.Empty;
+        if (player == null || player.NetworkManager == null || !player.NetworkManager.IsListening || (!player.NetworkManager.IsClient && !player.NetworkManager.IsHost))
+        {
+            return false;
+        }
+
+        if (!grabbedObject.TryGet(out NetworkObject networkObject) || networkObject == null)
+        {
+            reason = "grabbed NetworkObject reference could not be resolved";
+            return true;
+        }
+
+        GrabbableObject grabbableObject = networkObject.GetComponent<GrabbableObject>();
+        if (grabbableObject == null)
+        {
+            reason = "NetworkObject had no GrabbableObject";
+            return true;
+        }
+
+        if (grabbableObject.itemProperties == null)
+        {
+            reason = "GrabbableObject.itemProperties was missing";
+            return true;
+        }
+
+        if (!player.IsOwner && HasUnsafeRemoteThrowDependencies(player, grabbableObject, out reason))
+        {
+            return true;
+        }
+
+        if (grabbableObject != player.currentlyHeldObjectServer)
+        {
+            reason = "grabbed object did not match currentlyHeldObjectServer";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasUnsafeRemoteThrowDependencies(PlayerControllerB player, GrabbableObject grabbableObject, out string reason)
+    {
+        if (player.ItemSlots == null)
+        {
+            reason = "player ItemSlots were missing";
+            return true;
+        }
+
+        if (player.playersManager == null)
+        {
+            reason = "player manager was missing";
+            return true;
+        }
+
+        if (player.playersManager.elevatorTransform == null || player.playersManager.propsContainer == null)
+        {
+            reason = "drop parent transforms were missing";
+            return true;
+        }
+
+        if (grabbableObject == null || grabbableObject.transform == null)
+        {
+            reason = "drop object transform was missing";
+            return true;
+        }
+
+        reason = string.Empty;
         return false;
     }
 
@@ -261,15 +446,27 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
             if (grabbableObject == null)
             {
                 Warnings.Warn($"missing-grabbable|{player.playerClientId}", $"Skipped ThrowObjectClientRpc for player #{player.playerClientId} because the NetworkObject had no GrabbableObject.");
-                stateMutated = true;
                 FinishThrowingIfOwner(player);
                 return;
             }
 
-            if (!player.IsOwner)
+            if (grabbableObject != player.currentlyHeldObjectServer)
+            {
+                Warnings.Warn($"held-mismatch|{player.playerClientId}", $"Suppressed ThrowObjectClientRpc held-object mismatch for player #{player.playerClientId}; currentlyHeldObjectServer was {GetHeldObjectName(player.currentlyHeldObjectServer)}.");
+                FinishThrowingIfOwner(player);
+                return;
+            }
+
+            string skipRemoteDropReason = string.Empty;
+            if (!player.IsOwner && grabbableObject.itemProperties != null && !HasUnsafeRemoteThrowDependencies(player, grabbableObject, out skipRemoteDropReason))
             {
                 stateMutated = true;
                 player.SetObjectAsNoLongerHeld(droppedInElevator, droppedInShipRoom, targetFloorPosition, grabbableObject, floorYRot);
+            }
+            else if (!player.IsOwner)
+            {
+                skipRemoteDropReason = grabbableObject.itemProperties == null ? "itemProperties was missing" : skipRemoteDropReason;
+                Warnings.Warn($"unsafe-remote-drop|{player.playerClientId}|{skipRemoteDropReason}", $"Skipped remote SetObjectAsNoLongerHeld in ThrowObjectClientRpc for player #{player.playerClientId} because {skipRemoteDropReason}.");
             }
 
             if (grabbableObject.itemProperties == null || !grabbableObject.itemProperties.syncDiscardFunction)
@@ -278,15 +475,8 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
                 grabbableObject.playerHeldBy = null;
             }
 
-            if (grabbableObject == player.currentlyHeldObjectServer)
-            {
-                stateMutated = true;
-                player.currentlyHeldObjectServer = null;
-            }
-            else
-            {
-                Warnings.Warn($"held-mismatch|{player.playerClientId}", $"Suppressed ThrowObjectClientRpc held-object mismatch for player #{player.playerClientId}; currentlyHeldObjectServer was {GetHeldObjectName(player.currentlyHeldObjectServer)}.");
-            }
+            stateMutated = true;
+            player.currentlyHeldObjectServer = null;
         }
         else
         {
@@ -295,55 +485,6 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 
         stateMutated = true;
         FinishThrowingIfOwner(player);
-    }
-
-    private static bool EnsureRpcExecStageReady()
-    {
-        if (_rpcStageInitialized)
-        {
-            return _rpcStageReady;
-        }
-
-        _rpcStageInitialized = true;
-        if (RpcExecStageField == null)
-        {
-            Warnings.Warn("rpc-stage-missing", "Disabled ThrowObjectClientRpc guard because NetworkBehaviour.__rpc_exec_stage was not found.");
-            return false;
-        }
-
-        Type stageType = RpcExecStageField.FieldType;
-        if (!RpcExecStageUtility.TryParseEnumValue(stageType, "Send", out _rpcExecStageSend))
-        {
-            Warnings.Warn("rpc-stage-send-missing", "Disabled ThrowObjectClientRpc guard because RpcExecStage.Send could not be resolved.");
-            return false;
-        }
-
-        LogRpcStageValues(stageType);
-        _rpcStageReady = true;
-        return true;
-    }
-
-    private static void LogRpcStageValues(Type stageType)
-    {
-        if (_loggedRpcStageValues || stageType == null || !stageType.IsEnum)
-        {
-            return;
-        }
-
-        _loggedRpcStageValues = true;
-        string values = string.Join(", ", Enum.GetNames(stageType));
-        Plugin.Log?.LogInfo($"ThrowObjectClientRpc guard detected RpcExecStage values: {values}.");
-    }
-
-    private static bool IsExecutingClientRpc(PlayerControllerB player)
-    {
-        if (player == null || RpcExecStageField == null || !_rpcStageReady)
-        {
-            return false;
-        }
-
-        object execStage = RpcExecStageField.GetValue(player);
-        return execStage != null && execStage.ToString() == "Execute";
     }
 
     private static string GetHeldObjectName(GrabbableObject heldObject)
@@ -358,19 +499,9 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 
     private static void SetRpcExecStageSend(PlayerControllerB player)
     {
-        SetRpcExecStage(player, _rpcExecStageSend);
-    }
-
-    private static object GetRpcExecStage(PlayerControllerB player)
-    {
-        return player != null && RpcExecStageField != null ? RpcExecStageField.GetValue(player) : null;
-    }
-
-    private static void SetRpcExecStage(PlayerControllerB player, object stage)
-    {
-        if (player != null && RpcExecStageField != null && stage != null)
+        if (RpcExecStageUtility.TryGetSendStage(out object sendStage))
         {
-            RpcExecStageField.SetValue(player, stage);
+            RpcExecStageUtility.TrySetStage(player, sendStage);
         }
     }
 
@@ -401,9 +532,9 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 
     private static void SetThrowingObject(PlayerControllerB player, bool value)
     {
-        if (player != null && ThrowingObjectField != null)
+        if (player != null)
         {
-            ThrowingObjectField.SetValue(player, value);
+            player.throwingObject = value;
         }
     }
 
@@ -413,20 +544,123 @@ internal static class PlayerControllerBThrowObjectClientRpcPatch
 internal static class PlayerControllerBGrabObjectClientRpcPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
+    private static readonly WarningLimiter NonExecuteStageWarnings = new(maxWarnings: 1);
 
-    private static Exception Finalizer(PlayerControllerB __instance, Exception __exception)
+    private static Exception Finalizer(PlayerControllerB __instance, bool grabValidated, NetworkObjectReference grabbedObject, Exception __exception)
     {
-        if (__exception is NullReferenceException)
+        if (__exception is not NullReferenceException)
         {
-            Warnings.Warn($"GrabObjectClientRpc|{GetPlayerId(__instance)}", $"Suppressed PlayerControllerB.GrabObjectClientRpc NullReferenceException for player #{GetPlayerId(__instance)}.");
+            return __exception;
+        }
+
+        if (!RpcExecStageUtility.ShouldAllowClientRpcSuppression(__instance, "PlayerControllerB.GrabObjectClientRpc", __exception, NonExecuteStageWarnings))
+        {
+            return __exception;
+        }
+
+        if (IsKnownSafeGrabNre(__instance, grabValidated, grabbedObject, out string reason))
+        {
+            Warnings.Warn($"GrabObjectClientRpc|{GetPlayerId(__instance)}|{reason}", () => $"Suppressed PlayerControllerB.GrabObjectClientRpc NullReferenceException for player #{GetPlayerId(__instance)} after known unsafe grab dependencies were detected: {reason}. First stack fingerprint: {Fingerprint(__exception)}. First detail: {__exception}");
             return null;
         }
 
+        UnknownWarnings.Warn($"GrabObjectClientRpc|{GetPlayerId(__instance)}|{__exception.GetType().Name}", () => $"Unhandled PlayerControllerB.GrabObjectClientRpc NullReferenceException for player #{GetPlayerId(__instance)}; returning original exception. First stack fingerprint: {Fingerprint(__exception)}. First detail: {__exception}");
         return __exception;
+    }
+
+    private static bool IsKnownSafeGrabNre(PlayerControllerB player, bool grabValidated, NetworkObjectReference grabbedObject, out string reason)
+    {
+        if (player == null)
+        {
+            reason = "player was null";
+            return true;
+        }
+
+        if (!grabValidated)
+        {
+            reason = "grab was not validated";
+            return false;
+        }
+
+        if (!grabbedObject.TryGet(out NetworkObject networkObject) || networkObject == null)
+        {
+            reason = "grabbed NetworkObject reference could not be resolved";
+            return true;
+        }
+
+        GrabbableObject grabbableObject = networkObject.gameObject != null
+            ? networkObject.gameObject.GetComponentInChildren<GrabbableObject>()
+            : networkObject.GetComponentInChildren<GrabbableObject>();
+        if (grabbableObject == null)
+        {
+            reason = "grabbed NetworkObject had no GrabbableObject";
+            return true;
+        }
+
+        if (player.currentlyHeldObjectServer == null)
+        {
+            reason = "currentlyHeldObjectServer was null after grab validation";
+            return true;
+        }
+
+        if (player.currentlyHeldObjectServer.itemProperties == null)
+        {
+            reason = "currentlyHeldObjectServer.itemProperties was null";
+            return true;
+        }
+
+        if (player.playersManager == null || player.playersManager.propsContainer == null)
+        {
+            reason = "player props container was missing";
+            return true;
+        }
+
+        if (StartOfRound.Instance == null || StartOfRound.Instance.elevatorTransform == null)
+        {
+            reason = "StartOfRound elevator dependencies were missing";
+            return true;
+        }
+
+        if (!player.IsOwner && player.serverItemHolder == null)
+        {
+            reason = "remote player serverItemHolder was missing";
+            return true;
+        }
+
+        if (!player.IsOwner && player.itemAudio == null)
+        {
+            reason = "remote player itemAudio was missing";
+            return true;
+        }
+
+        if (player.IsOwner && player.currentItemSlot == 50 && (HUDManager.Instance == null || HUDManager.Instance.itemOnlySlotIconFrame == null))
+        {
+            reason = "utility belt tutorial HUD dependencies were missing";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
     }
 
     private static string GetPlayerId(PlayerControllerB player)
     {
         return player != null ? player.playerClientId.ToString() : "unknown";
+    }
+
+    private static string Fingerprint(Exception exception)
+    {
+        string stackTrace = exception?.StackTrace;
+        if (!string.IsNullOrEmpty(stackTrace))
+        {
+            string[] stackLines = stackTrace.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            if (stackLines.Length > 0)
+            {
+                return stackLines[0];
+            }
+        }
+
+        return exception?.GetType().Name ?? "unknown";
     }
 }

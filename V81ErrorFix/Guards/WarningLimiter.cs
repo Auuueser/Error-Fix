@@ -5,14 +5,20 @@ namespace V81ErrorFix;
 
 internal sealed class WarningLimiter
 {
+    private const string OverflowKey = "__overflow__";
+    private static readonly List<WarningLimiter> SceneScopedLimiters = new();
     private readonly int _maxWarnings;
     private readonly int _maxKeyCount;
     private readonly Dictionary<string, int> _warningCounts = new();
 
-    internal WarningLimiter(int maxWarnings = 5, int maxKeyCount = 512)
+    internal WarningLimiter(int maxWarnings = 5, int maxKeyCount = 512, bool clearOnSceneChange = true)
     {
         _maxWarnings = maxWarnings;
         _maxKeyCount = Math.Max(1, maxKeyCount);
+        if (clearOnSceneChange)
+        {
+            SceneScopedLimiters.Add(this);
+        }
     }
 
     internal void Warn(string key, string message)
@@ -37,7 +43,7 @@ internal sealed class WarningLimiter
 
     internal bool CanWarn(string key)
     {
-        _warningCounts.TryGetValue(NormalizeKey(key), out int warningCount);
+        _warningCounts.TryGetValue(GetEffectiveKeyForRead(NormalizeKey(key)), out int warningCount);
         return warningCount < _maxWarnings;
     }
 
@@ -81,10 +87,18 @@ internal sealed class WarningLimiter
         }
     }
 
+    internal static void ClearSceneScopedLimiters()
+    {
+        for (int i = 0; i < SceneScopedLimiters.Count; i++)
+        {
+            SceneScopedLimiters[i]?.Clear();
+        }
+    }
+
     private bool TryIncrement(string key, out int warningCount)
     {
         key = NormalizeKey(key);
-        EnforceKeyLimit(key);
+        key = ApplyKeyLimit(key);
         _warningCounts.TryGetValue(key, out warningCount);
         if (warningCount >= _maxWarnings)
         {
@@ -96,16 +110,26 @@ internal sealed class WarningLimiter
         return true;
     }
 
-    private void EnforceKeyLimit(string incomingKey)
+    private string ApplyKeyLimit(string incomingKey)
     {
         if (_warningCounts.ContainsKey(incomingKey) || _warningCounts.Count < _maxKeyCount)
         {
-            return;
+            return incomingKey;
+        }
+
+        if (_warningCounts.ContainsKey(OverflowKey) || _warningCounts.Count < _maxKeyCount + 1)
+        {
+            return OverflowKey;
         }
 
         string keyToRemove = null;
         foreach (string key in _warningCounts.Keys)
         {
+            if (key == OverflowKey)
+            {
+                continue;
+            }
+
             keyToRemove = key;
             break;
         }
@@ -114,6 +138,18 @@ internal sealed class WarningLimiter
         {
             _warningCounts.Remove(keyToRemove);
         }
+
+        return OverflowKey;
+    }
+
+    private string GetEffectiveKeyForRead(string incomingKey)
+    {
+        if (_warningCounts.ContainsKey(incomingKey) || _warningCounts.Count < _maxKeyCount)
+        {
+            return incomingKey;
+        }
+
+        return OverflowKey;
     }
 
     private static string NormalizeKey(string key)

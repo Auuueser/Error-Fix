@@ -6,17 +6,24 @@ namespace V81ErrorFix;
 
 internal sealed class ParticleMeshShapeGuard : MonoBehaviour
 {
-    private const float ScanInterval = 5f;
     private const int ScanBatchSize = 64;
+    private const float ScanFrameBudgetSeconds = 0.0025f;
     private const int MeshInspectionCacheCleanupThreshold = 256;
+    private const int MaxFullAreaScanVertices = 32768;
+    private const int MaxFullAreaScanIndices = 98304;
+    private const int MaxPendingWarningBatches = 64;
+    private const int MaxParticleSystemNamesPerWarning = 16;
     private static ParticleMeshShapeGuard _instance;
-    private float _nextScanTime;
+    private bool _scanRequested;
     private ParticleSystem[] _scanQueue;
     private int _scanIndex;
     private readonly Dictionary<int, ParticleSystem> _patchedParticleSystems = new();
     private readonly WarningLimiter _warnings = new();
     private readonly Dictionary<string, ParticleMeshWarningBatch> _pendingWarnings = new();
     private readonly Dictionary<int, CachedMeshInspection> _meshInspectionCache = new();
+    private readonly Dictionary<int, MeshInspectionProgress> _meshInspectionProgress = new();
+    private List<Vector3> _meshVertices = new();
+    private List<int> _meshTriangles = new();
 
     internal static void EnsureCreated()
     {
@@ -24,6 +31,7 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
         if (existingGuard != null)
         {
             _instance = existingGuard;
+            _instance.RequestSceneScan();
             return;
         }
 
@@ -31,6 +39,7 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
         DontDestroyOnLoad(guardObject);
         guardObject.hideFlags = HideFlags.HideAndDontSave;
         _instance = guardObject.AddComponent<ParticleMeshShapeGuard>();
+        _instance.RequestSceneScan();
     }
 
     internal static void NotifySceneLoaded()
@@ -40,7 +49,7 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
             return;
         }
 
-        _instance._nextScanTime = 0f;
+        _instance.RequestSceneScan();
     }
 
     internal static void NotifySceneUnloaded()
@@ -74,14 +83,19 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
             return;
         }
 
-        if (Time.realtimeSinceStartup < _nextScanTime)
+        if (!_scanRequested)
         {
             return;
         }
 
-        _nextScanTime = Time.realtimeSinceStartup + ScanInterval;
+        _scanRequested = false;
         BeginParticleSystemScan();
         ContinueParticleSystemScan();
+    }
+
+    private void RequestSceneScan()
+    {
+        _scanRequested = true;
     }
 
     private void BeginParticleSystemScan()
@@ -99,9 +113,10 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
         }
 
         int endIndex = Math.Min(_scanIndex + ScanBatchSize, _scanQueue.Length);
-        for (; _scanIndex < endIndex; _scanIndex++)
+        float scanDeadline = Time.realtimeSinceStartup + ScanFrameBudgetSeconds;
+        for (; _scanIndex < endIndex && Time.realtimeSinceStartup < scanDeadline; _scanIndex++)
         {
-            TryPatchParticleSystem(_scanQueue[_scanIndex]);
+            TryPatchParticleSystem(_scanQueue[_scanIndex], scanDeadline);
         }
 
         if (_scanIndex < _scanQueue.Length)
@@ -114,7 +129,7 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
         FlushParticleMeshWarnings();
     }
 
-    private void TryPatchParticleSystem(ParticleSystem particleSystem)
+    private void TryPatchParticleSystem(ParticleSystem particleSystem, float scanDeadline)
     {
         if (particleSystem == null)
         {
@@ -135,15 +150,25 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
                 return;
             }
 
-            string disableReason = GetInvalidMeshReasonCached(mesh);
-            if (disableReason == null)
+            MeshInspectionStatus inspectionStatus = GetInvalidMeshReasonCached(mesh, scanDeadline, out string disableReason);
+            if (inspectionStatus == MeshInspectionStatus.Incomplete)
+            {
+                _scanIndex--;
+                return;
+            }
+
+            if (inspectionStatus == MeshInspectionStatus.Valid)
             {
                 return;
             }
 
-            shape.enabled = false;
+            if (!IsDryRun())
+            {
+                shape.enabled = false;
+            }
+
             _patchedParticleSystems[particleSystemId] = particleSystem;
-            QueueParticleMeshWarning(mesh.name, disableReason, particleSystem.name);
+            QueueParticleMeshWarning(mesh.name, disableReason, particleSystem.name, IsDryRun());
         }
         catch (Exception ex)
         {
@@ -156,15 +181,17 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
     {
         _scanQueue = null;
         _scanIndex = 0;
+        _scanRequested = false;
         _pendingWarnings.Clear();
         _patchedParticleSystems.Clear();
         _meshInspectionCache.Clear();
+        _meshInspectionProgress.Clear();
         _warnings.Clear();
     }
 
-    private void QueueParticleMeshWarning(string meshName, string reason, string particleSystemName)
+    private void QueueParticleMeshWarning(string meshName, string reason, string particleSystemName, bool dryRun = false)
     {
-        string key = $"{meshName}|{reason}";
+        string key = $"{meshName}|{reason}|{dryRun}";
         if (!_warnings.CanWarn(key))
         {
             return;
@@ -172,11 +199,16 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
 
         if (!_pendingWarnings.TryGetValue(key, out ParticleMeshWarningBatch warningBatch))
         {
-            warningBatch = new ParticleMeshWarningBatch(meshName, reason);
+            if (_pendingWarnings.Count >= MaxPendingWarningBatches)
+            {
+                return;
+            }
+
+            warningBatch = new ParticleMeshWarningBatch(meshName, reason, dryRun);
             _pendingWarnings[key] = warningBatch;
         }
 
-        warningBatch.ParticleSystemNames.Add(particleSystemName);
+        warningBatch.AddParticleSystemName(particleSystemName);
     }
 
     private void FlushParticleMeshWarnings()
@@ -187,23 +219,37 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
             _warnings.Warn(pendingWarning.Key, () =>
             {
                 string particleSystemNames = string.Join(", ", warningBatch.ParticleSystemNames);
-                return $"Disabled mesh shape because mesh '{warningBatch.MeshName}' {warningBatch.Reason} on particle systems: {particleSystemNames}.";
+                if (warningBatch.OmittedParticleSystemCount > 0)
+                {
+                    particleSystemNames = $"{particleSystemNames}, and {warningBatch.OmittedParticleSystemCount} more";
+                }
+
+                string action = warningBatch.DryRun ? "Would disable" : "Disabled";
+                return $"{action} mesh shape because mesh '{warningBatch.MeshName}' {warningBatch.Reason} on particle systems: {particleSystemNames}.";
             });
         }
     }
 
-    private string GetInvalidMeshReasonCached(Mesh mesh)
+    private MeshInspectionStatus GetInvalidMeshReasonCached(Mesh mesh, float scanDeadline, out string invalidReason)
     {
+        invalidReason = null;
         int meshId = mesh.GetInstanceID();
         if (_meshInspectionCache.TryGetValue(meshId, out CachedMeshInspection cachedInspection) && cachedInspection.Mesh == mesh)
         {
-            return cachedInspection.InvalidReason;
+            invalidReason = cachedInspection.InvalidReason;
+            return cachedInspection.Status;
         }
 
-        string invalidReason = GetInvalidMeshReason(mesh);
-        _meshInspectionCache[meshId] = new CachedMeshInspection(mesh, invalidReason);
+        MeshInspectionStatus inspectionStatus = GetInvalidMeshReason(mesh, meshId, scanDeadline, out invalidReason);
+        if (inspectionStatus == MeshInspectionStatus.Incomplete)
+        {
+            return inspectionStatus;
+        }
+
+        _meshInspectionProgress.Remove(meshId);
+        _meshInspectionCache[meshId] = new CachedMeshInspection(mesh, inspectionStatus, invalidReason);
         CleanupMeshInspectionCacheIfNeeded();
-        return invalidReason;
+        return inspectionStatus;
     }
 
     private void CleanupMeshInspectionCacheIfNeeded()
@@ -255,65 +301,208 @@ internal sealed class ParticleMeshShapeGuard : MonoBehaviour
         }
     }
 
-    private static string GetInvalidMeshReason(Mesh mesh)
+    private MeshInspectionStatus GetInvalidMeshReason(Mesh mesh, int meshId, float scanDeadline, out string invalidReason)
     {
+        invalidReason = null;
         if (!mesh.isReadable)
         {
-            return "is not readable";
+            invalidReason = "is not readable";
+            return MeshInspectionStatus.Invalid;
+        }
+
+        int vertexCount = mesh.vertexCount;
+        int subMeshCount = mesh.subMeshCount;
+        if (vertexCount == 0 || subMeshCount <= 0)
+        {
+            invalidReason = "has zero surface area";
+            return MeshInspectionStatus.Invalid;
         }
 
         try
         {
-            Vector3[] vertices = mesh.vertices;
-            int[] triangles = mesh.triangles;
-            if (vertices == null || triangles == null || vertices.Length == 0 || triangles.Length < 3)
+            bool hasTriangleCandidate = false;
+            ulong totalIndexCount = 0;
+            for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
             {
-                return "has zero surface area";
+                uint indexCount = mesh.GetIndexCount(subMeshIndex);
+                if (indexCount >= 3)
+                {
+                    hasTriangleCandidate = true;
+                }
+
+                totalIndexCount += indexCount;
             }
 
-            double area = 0.0;
-            for (int i = 0; i + 2 < triangles.Length; i += 3)
+            if (!hasTriangleCandidate)
             {
-                Vector3 a = vertices[triangles[i]];
-                Vector3 b = vertices[triangles[i + 1]];
-                Vector3 c = vertices[triangles[i + 2]];
-                area += Vector3.Cross(b - a, c - a).magnitude * 0.5;
-                if (area > 0.0001)
+                invalidReason = "has zero surface area";
+                return MeshInspectionStatus.Invalid;
+            }
+
+            if (vertexCount > MaxFullAreaScanVertices || totalIndexCount > MaxFullAreaScanIndices)
+            {
+                return MeshInspectionStatus.Valid;
+            }
+
+            MeshInspectionProgress progress = null;
+            if (_meshInspectionProgress.TryGetValue(meshId, out MeshInspectionProgress cachedProgress)
+                && cachedProgress.Mesh == mesh
+                && cachedProgress.VertexCount == vertexCount
+                && cachedProgress.SubMeshCount == subMeshCount)
+            {
+                progress = cachedProgress;
+            }
+
+            _meshVertices.Clear();
+            _meshTriangles.Clear();
+            mesh.GetVertices(_meshVertices);
+            int startSubMeshIndex = Math.Min(progress?.SubMeshIndex ?? 0, subMeshCount - 1);
+            for (int subMeshIndex = startSubMeshIndex; subMeshIndex < subMeshCount; subMeshIndex++)
+            {
+                _meshTriangles.Clear();
+                mesh.GetTriangles(_meshTriangles, subMeshIndex);
+                if (_meshTriangles.Count < 3)
                 {
-                    return null;
+                    continue;
+                }
+
+                double area = subMeshIndex == startSubMeshIndex ? progress?.Area ?? 0.0 : 0.0;
+                int startTriangleIndex = subMeshIndex == startSubMeshIndex ? progress?.TriangleIndex ?? 0 : 0;
+                startTriangleIndex -= startTriangleIndex % 3;
+                for (int i = startTriangleIndex; i + 2 < _meshTriangles.Count; i += 3)
+                {
+                    Vector3 a = _meshVertices[_meshTriangles[i]];
+                    Vector3 b = _meshVertices[_meshTriangles[i + 1]];
+                    Vector3 c = _meshVertices[_meshTriangles[i + 2]];
+                    area += Vector3.Cross(b - a, c - a).magnitude * 0.5;
+                    if (area > 0.0001)
+                    {
+                        return MeshInspectionStatus.Valid;
+                    }
+
+                    if (Time.realtimeSinceStartup >= scanDeadline)
+                    {
+                        _meshInspectionProgress[meshId] = new MeshInspectionProgress(
+                            mesh,
+                            vertexCount,
+                            subMeshCount,
+                            subMeshIndex,
+                            Math.Min(i + 3, _meshTriangles.Count),
+                            area);
+                        return MeshInspectionStatus.Incomplete;
+                    }
                 }
             }
         }
         catch
         {
-            return "could not be inspected safely";
+            invalidReason = "could not be inspected safely";
+            return MeshInspectionStatus.Invalid;
+        }
+        finally
+        {
+            TrimMeshScratchLists();
         }
 
-        return "has zero surface area";
+        invalidReason = "has zero surface area";
+        return MeshInspectionStatus.Invalid;
+    }
+
+    private void TrimMeshScratchLists()
+    {
+        const int MaxRetainedCapacity = 65536;
+        if (_meshVertices.Capacity > MaxRetainedCapacity)
+        {
+            _meshVertices = new List<Vector3>();
+        }
+        else
+        {
+            _meshVertices.Clear();
+        }
+
+        if (_meshTriangles.Capacity > MaxRetainedCapacity)
+        {
+            _meshTriangles = new List<int>();
+        }
+        else
+        {
+            _meshTriangles.Clear();
+        }
+    }
+
+    private static bool IsDryRun()
+    {
+        return ErrorFixConfig.ParticleMeshShapeGuardDryRun != null && ErrorFixConfig.ParticleMeshShapeGuardDryRun.Value;
     }
 
     private sealed class ParticleMeshWarningBatch
     {
         internal readonly string MeshName;
         internal readonly string Reason;
+        internal readonly bool DryRun;
         internal readonly HashSet<string> ParticleSystemNames = new();
+        internal int OmittedParticleSystemCount;
 
-        internal ParticleMeshWarningBatch(string meshName, string reason)
+        internal ParticleMeshWarningBatch(string meshName, string reason, bool dryRun)
         {
             MeshName = meshName;
             Reason = reason;
+            DryRun = dryRun;
+        }
+
+        internal void AddParticleSystemName(string particleSystemName)
+        {
+            if (ParticleSystemNames.Count < MaxParticleSystemNamesPerWarning)
+            {
+                ParticleSystemNames.Add(particleSystemName);
+                return;
+            }
+
+            if (!ParticleSystemNames.Contains(particleSystemName))
+            {
+                OmittedParticleSystemCount++;
+            }
         }
     }
 
     private sealed class CachedMeshInspection
     {
         internal readonly Mesh Mesh;
+        internal readonly MeshInspectionStatus Status;
         internal readonly string InvalidReason;
 
-        internal CachedMeshInspection(Mesh mesh, string invalidReason)
+        internal CachedMeshInspection(Mesh mesh, MeshInspectionStatus status, string invalidReason)
         {
             Mesh = mesh;
+            Status = status;
             InvalidReason = invalidReason;
         }
+    }
+
+    private sealed class MeshInspectionProgress
+    {
+        internal readonly Mesh Mesh;
+        internal readonly int VertexCount;
+        internal readonly int SubMeshCount;
+        internal readonly int SubMeshIndex;
+        internal readonly int TriangleIndex;
+        internal readonly double Area;
+
+        internal MeshInspectionProgress(Mesh mesh, int vertexCount, int subMeshCount, int subMeshIndex, int triangleIndex, double area)
+        {
+            Mesh = mesh;
+            VertexCount = vertexCount;
+            SubMeshCount = subMeshCount;
+            SubMeshIndex = subMeshIndex;
+            TriangleIndex = triangleIndex;
+            Area = area;
+        }
+    }
+
+    private enum MeshInspectionStatus
+    {
+        Valid,
+        Invalid,
+        Incomplete
     }
 }

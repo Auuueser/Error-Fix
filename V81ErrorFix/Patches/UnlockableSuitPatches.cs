@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using UnityEngine;
 using GameNetcodeStuff;
@@ -94,6 +97,7 @@ internal static class UnlockableSuitUpdatePatch
 internal static class UnlockableSuitSwitchSuitForPlayerPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
 
     private static bool Prefix(PlayerControllerB player, int suitID)
     {
@@ -117,7 +121,7 @@ internal static class UnlockableSuitSwitchSuitForPlayerPatch
         return true;
     }
 
-    private static Exception Finalizer(int suitID, Exception __exception)
+    private static Exception Finalizer(PlayerControllerB player, int suitID, Exception __exception)
     {
         if (!UnlockableSuitUpdatePatch.IsPatchEnabled())
         {
@@ -126,8 +130,13 @@ internal static class UnlockableSuitSwitchSuitForPlayerPatch
 
         if (__exception is ArgumentOutOfRangeException || __exception is NullReferenceException)
         {
-            Warnings.Warn($"exception|{suitID}|{__exception.GetType().Name}", $"Suppressed UnlockableSuit.SwitchSuitForPlayer {__exception.GetType().Name} for suit id {suitID}.");
-            return null;
+            if (player == null || !UnlockableSuitUpdatePatch.IsValidSuitId(suitID))
+            {
+                Warnings.Warn($"exception|{suitID}|{__exception.GetType().Name}", $"Suppressed UnlockableSuit.SwitchSuitForPlayer {__exception.GetType().Name} for known invalid player or suit id {suitID}.");
+                return null;
+            }
+
+            UnknownWarnings.Warn($"unknown-exception|{suitID}|{__exception.GetType().Name}", () => $"Unhandled UnlockableSuit.SwitchSuitForPlayer {__exception.GetType().Name} for valid suit id {suitID}; returning original exception. First detail: {__exception}");
         }
 
         return __exception;
@@ -138,6 +147,7 @@ internal static class UnlockableSuitSwitchSuitForPlayerPatch
 internal static class UnlockableSuitSwitchSuitForAllPlayersPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
 
     private static bool Prefix(int suitID)
     {
@@ -164,11 +174,81 @@ internal static class UnlockableSuitSwitchSuitForAllPlayersPatch
 
         if (__exception is ArgumentOutOfRangeException || __exception is NullReferenceException)
         {
-            Warnings.Warn($"exception|{suitID}|{__exception.GetType().Name}", $"Suppressed UnlockableSuit.SwitchSuitForAllPlayers {__exception.GetType().Name} for suit id {suitID}.");
-            return null;
+            if (!UnlockableSuitUpdatePatch.IsValidSuitId(suitID))
+            {
+                Warnings.Warn($"exception|{suitID}|{__exception.GetType().Name}", $"Suppressed UnlockableSuit.SwitchSuitForAllPlayers {__exception.GetType().Name} for known invalid suit id {suitID}.");
+                return null;
+            }
+
+            UnknownWarnings.Warn($"unknown-exception|{suitID}|{__exception.GetType().Name}", () => $"Unhandled UnlockableSuit.SwitchSuitForAllPlayers {__exception.GetType().Name} for valid suit id {suitID}; returning original exception. First detail: {__exception}");
         }
 
         return __exception;
+    }
+}
+
+[HarmonyPatch]
+internal static class StartOfRoundSpawnUnlockableSuitNetworkVariablePatch
+{
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return UnlockableSuitUpdatePatch.IsPatchEnabled()
+            && TargetMethod() != null
+            && AccessTools.PropertySetter(typeof(NetworkVariable<int>), nameof(NetworkVariable<int>.Value)) != null
+            && AccessTools.Method(typeof(NetworkVariable<int>), nameof(NetworkVariable<int>.Reset), new[] { typeof(int) }) != null
+            && AccessTools.Field(typeof(UnlockableSuit), nameof(UnlockableSuit.syncedSuitID)) != null;
+    }
+
+    [HarmonyTargetMethod]
+    private static MethodBase TargetMethod()
+    {
+        return AccessTools.Method(typeof(StartOfRound), "SpawnUnlockable", new[] { typeof(int), typeof(bool) });
+    }
+
+    private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+    {
+        MethodInfo valueSetter = AccessTools.PropertySetter(typeof(NetworkVariable<int>), nameof(NetworkVariable<int>.Value));
+        MethodInfo resetMethod = AccessTools.Method(typeof(NetworkVariable<int>), nameof(NetworkVariable<int>.Reset), new[] { typeof(int) });
+        FieldInfo syncedSuitIdField = AccessTools.Field(typeof(UnlockableSuit), nameof(UnlockableSuit.syncedSuitID));
+        List<CodeInstruction> codes = new(instructions);
+        if (valueSetter == null || resetMethod == null || syncedSuitIdField == null)
+        {
+            Plugin.Log?.LogWarning("StartOfRound.SpawnUnlockable suit NetworkVariable patch was skipped because required Netcode or UnlockableSuit members were not found.");
+            return codes;
+        }
+
+        List<int> replacementIndices = new();
+        for (int i = 0; i < codes.Count; i++)
+        {
+            if (!codes[i].Calls(valueSetter) || !LoadsSyncedSuitId(codes, i, syncedSuitIdField))
+            {
+                continue;
+            }
+
+            replacementIndices.Add(i);
+        }
+
+        if (replacementIndices.Count != 1)
+        {
+            Plugin.Log?.LogWarning($"StartOfRound.SpawnUnlockable suit NetworkVariable patch expected one Value setter but found {replacementIndices.Count}; leaving generated method unchanged.");
+            return codes;
+        }
+
+        // V81 initializes suit ids before NetworkObject.Spawn(). Netcode's Reset path is
+        // intended for pre-spawn initial values and avoids dirtying an unbound behaviour.
+        codes[replacementIndices[0]].opcode = OpCodes.Callvirt;
+        codes[replacementIndices[0]].operand = resetMethod;
+        Plugin.Log?.LogInfo("Patched StartOfRound.SpawnUnlockable suit NetworkVariable initialization to use Reset before NetworkObject.Spawn.");
+
+        return codes;
+    }
+
+    private static bool LoadsSyncedSuitId(List<CodeInstruction> codes, int setterIndex, FieldInfo syncedSuitIdField)
+    {
+        return setterIndex >= 2
+            && codes[setterIndex - 2].opcode == OpCodes.Ldfld
+            && Equals(codes[setterIndex - 2].operand, syncedSuitIdField);
     }
 }
 
@@ -177,7 +257,8 @@ internal static class StartOfRoundSyncShipUnlockablesClientRpcSuitGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
-    private static void Prefix(
+    private static bool Prefix(
+        StartOfRound __instance,
         ref int[] playerSuitIDs,
         ref Vector3[] placeableObjectPositions,
         ref Vector3[] placeableObjectRotations,
@@ -188,25 +269,32 @@ internal static class StartOfRoundSyncShipUnlockablesClientRpcSuitGuardPatch
     {
         if (!UnlockableSuitUpdatePatch.IsPatchEnabled())
         {
-            return;
+            return true;
+        }
+
+        if (!IsExecutingClientRpc(__instance))
+        {
+            return true;
         }
 
         int playerCount = StartOfRound.Instance != null && StartOfRound.Instance.allPlayerScripts != null
-            ? Math.Max(4, StartOfRound.Instance.allPlayerScripts.Length)
+            ? StartOfRound.Instance.allPlayerScripts.Length
             : 4;
         int unlockableCount = StartOfRound.Instance != null && StartOfRound.Instance.unlockablesList != null && StartOfRound.Instance.unlockablesList.unlockables != null
             ? StartOfRound.Instance.unlockablesList.unlockables.Count
             : 0;
 
-        playerSuitIDs = EnsureLength(playerSuitIDs, playerCount, 0, "playerSuitIDs");
-        placeableObjectPositions = EnsureLength(placeableObjectPositions, unlockableCount, Vector3.zero, "placeableObjectPositions");
-        placeableObjectRotations = EnsureLength(placeableObjectRotations, unlockableCount, Vector3.zero, "placeableObjectRotations");
-        unlockedObjects = EnsureLength(unlockedObjects, unlockableCount, false, "unlockedObjects");
-        storedItems ??= Array.Empty<int>();
-        scrapValues ??= Array.Empty<int>();
-        itemSaveData ??= Array.Empty<int>();
+        if (!HasRequiredLength(playerSuitIDs, playerCount, "playerSuitIDs") ||
+            !HasRequiredLength(placeableObjectPositions, unlockableCount, "placeableObjectPositions") ||
+            !HasRequiredLength(placeableObjectRotations, unlockableCount, "placeableObjectRotations") ||
+            !HasRequiredLength(unlockedObjects, unlockableCount, "unlockedObjects"))
+        {
+            return false;
+        }
 
-        for (int i = 0; i < playerSuitIDs.Length; i++)
+        int slotsToValidate = Math.Min(playerSuitIDs.Length, playerCount);
+        int unlockablesCount = GetUnlockablesCount();
+        for (int i = 0; i < slotsToValidate; i++)
         {
             int suitId = playerSuitIDs[i];
             if (UnlockableSuitUpdatePatch.IsValidSuitId(suitId))
@@ -214,19 +302,45 @@ internal static class StartOfRoundSyncShipUnlockablesClientRpcSuitGuardPatch
                 continue;
             }
 
-            Warnings.Warn($"invalid-player-suit|{i}|{suitId}", $"Replaced invalid synced suit id {suitId} for player slot {i} with suit id 0.");
+            if (!UnlockableSuitUpdatePatch.IsValidSuitId(0))
+            {
+                Warnings.Warn($"invalid-player-suit-no-fallback|{i}|{suitId}", $"Skipped SyncShipUnlockablesClientRpc because player slot {i} had invalid suit id {suitId} and fallback suit id 0 was unavailable; unlockables count was {unlockablesCount}.");
+                return false;
+            }
+
+            Warnings.Warn($"invalid-player-suit|{i}|{suitId}", $"Replaced invalid synced suit id {suitId} for player slot {i} with suit id 0; unlockables count was {unlockablesCount}.");
             playerSuitIDs[i] = 0;
         }
+
+        return true;
     }
 
-    private static T[] EnsureLength<T>(T[] values, int requiredLength, T defaultValue, string arrayName)
+    private static bool HasRequiredLength<T>(T[] values, int requiredLength, string arrayName)
     {
-        T[] resizedValues = ArrayUtility.EnsureLength(values, requiredLength, defaultValue);
-        if (!ReferenceEquals(values, resizedValues))
+        if (requiredLength <= 0)
         {
-            Warnings.Warn($"resize|{arrayName}", $"Resized SyncShipUnlockablesClientRpc {arrayName} to {requiredLength} entries.");
+            return true;
         }
 
-        return resizedValues;
+        if (values != null && values.Length >= requiredLength)
+        {
+            return true;
+        }
+
+        int actualLength = values != null ? values.Length : -1;
+        Warnings.Warn($"malformed-sync-array|{arrayName}|{actualLength}|{requiredLength}", $"Skipped SyncShipUnlockablesClientRpc because {arrayName} length {actualLength} was shorter than required length {requiredLength}; preserving original data instead of default-expanding unknown RPC payloads.");
+        return false;
+    }
+
+    private static int GetUnlockablesCount()
+    {
+        return StartOfRound.Instance != null && StartOfRound.Instance.unlockablesList != null && StartOfRound.Instance.unlockablesList.unlockables != null
+            ? StartOfRound.Instance.unlockablesList.unlockables.Count
+            : 0;
+    }
+
+    private static bool IsExecutingClientRpc(StartOfRound startOfRound)
+    {
+        return RpcExecStageUtility.TryIsExecuting(startOfRound, out bool isExecuting) && isExecuting;
     }
 }

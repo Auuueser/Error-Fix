@@ -6,16 +6,39 @@ using UnityEngine;
 
 namespace V81ErrorFix;
 
+internal static class PlayerRagdollGlobalTagGuard
+{
+    internal static bool ShouldPatch()
+    {
+        return PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.PlayerRagdollGlobalTagGuardMode);
+    }
+}
+
 [HarmonyPatch]
 internal static class PlayerRagdollCompareTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
+
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
     {
-        yield return AccessTools.Method(typeof(GameObject), "CompareTag", new[] { typeof(string) });
-        yield return AccessTools.Method(typeof(Component), "CompareTag", new[] { typeof(string) });
+        MethodInfo gameObjectCompareTag = AccessTools.Method(typeof(GameObject), "CompareTag", new[] { typeof(string) });
+        if (gameObjectCompareTag != null)
+        {
+            yield return gameObjectCompareTag;
+        }
+
+        MethodInfo componentCompareTag = AccessTools.Method(typeof(Component), "CompareTag", new[] { typeof(string) });
+        if (componentCompareTag != null)
+        {
+            yield return componentCompareTag;
+        }
     }
 
     private static Exception Finalizer(Exception __exception, string __0, ref bool __result)
@@ -41,6 +64,12 @@ internal static class PlayerRagdollFindWithTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
+
     private static Exception Finalizer(string tag, Exception __exception, ref GameObject __result)
     {
         if (__exception == null)
@@ -64,6 +93,12 @@ internal static class PlayerRagdollFindGameObjectWithTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
+
     private static Exception Finalizer(string tag, Exception __exception, ref GameObject __result)
     {
         if (__exception == null)
@@ -86,6 +121,12 @@ internal static class PlayerRagdollFindGameObjectWithTagGuardPatch
 internal static class PlayerRagdollFindGameObjectsWithTagGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
+
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
 
     private static Exception Finalizer(string tag, Exception __exception, ref GameObject[] __result)
     {
@@ -227,6 +268,12 @@ internal static class DeadBodyInfoPlayerRagdollTagGuardPatch
 internal static class GameObjectPlayerRagdollTagSetterGuardPatch
 {
     private static readonly WarningLimiter Warnings = new();
+
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PlayerRagdollGlobalTagGuard.ShouldPatch();
+    }
 
     private static Exception Finalizer(GameObject __instance, string value, Exception __exception)
     {

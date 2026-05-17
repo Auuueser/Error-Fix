@@ -1,98 +1,56 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Reflection;
-using BepInEx;
 using HarmonyLib;
-using Unity.AI.Navigation;
 using UnityEngine;
 using GameNetcodeStuff;
-using Unity.Netcode;
-using UnityEngine.AI;
 
 namespace V81ErrorFix;
 
 [HarmonyPatch(typeof(QuicksandTrigger), "OnExit")]
 internal static class QuicksandTriggerOnExitPatch
 {
-    private const int MaxWarnings = 5;
-    private static readonly Dictionary<string, int> WarningCounts = new();
+    private static readonly WarningLimiter Warnings = new();
 
     private static bool Prefix(QuicksandTrigger __instance, Collider other)
     {
         try
         {
-            HandleExitSafely(__instance, other);
+            return ShouldRunVanilla(__instance, other);
         }
         catch (Exception ex)
         {
-            Warn("exception", $"Suppressed QuicksandTrigger.OnExit failure safely: {ex.GetType().Name}.");
+            Warnings.Warn("guard-failure", $"Skipped QuicksandTrigger.OnExit because the guard failed safely before vanilla execution: {ex.GetType().Name}.");
+            return false;
         }
-
-        return false;
     }
 
-    private static void HandleExitSafely(QuicksandTrigger quicksandTrigger, Collider other)
+    private static bool ShouldRunVanilla(QuicksandTrigger quicksandTrigger, Collider other)
     {
         if (quicksandTrigger == null || other == null)
         {
-            Warn("missing-trigger-or-collider", "Skipped QuicksandTrigger.OnExit because the trigger or collider was missing.");
-            return;
+            Warnings.Warn("missing-trigger-or-collider", "Skipped QuicksandTrigger.OnExit because the trigger or collider was missing.");
+            return false;
         }
 
-        PlayerControllerB player = TryGetPlayer(other);
-        if (player == null)
+        if (!other.CompareTag("Player"))
         {
-            if (other.CompareTag("Player"))
-            {
-                Warn("missing-player", $"Skipped QuicksandTrigger.OnExit for '{other.name}' because no PlayerControllerB was found.");
-            }
-
-            return;
+            return true;
         }
 
         if (GameNetworkManager.Instance == null)
         {
-            Warn("missing-network-manager", "Skipped QuicksandTrigger.OnExit because GameNetworkManager.Instance was missing.");
-            return;
+            Warnings.Warn("missing-network-manager", "Skipped QuicksandTrigger.OnExit because GameNetworkManager.Instance was missing.");
+            return false;
         }
 
-        PlayerControllerB localPlayer = GameNetworkManager.Instance.localPlayerController;
-        if (!quicksandTrigger.sinkingLocalPlayer)
+        PlayerControllerB player = other.gameObject != null
+            ? other.gameObject.GetComponent<PlayerControllerB>() ?? other.GetComponentInParent<PlayerControllerB>()
+            : other.GetComponentInParent<PlayerControllerB>();
+        if (player == null)
         {
-            if (quicksandTrigger.isWater && player != localPlayer)
-            {
-                player.isUnderwater = false;
-            }
-
-            return;
+            Warnings.Warn("missing-player", $"Skipped QuicksandTrigger.OnExit for '{other.name}' because no PlayerControllerB was found on the player collider.");
+            return false;
         }
 
-        if (player == localPlayer)
-        {
-            quicksandTrigger.StopSinkingLocalPlayer(player);
-        }
-    }
-
-    private static PlayerControllerB TryGetPlayer(Collider other)
-    {
-        if (other == null || other.gameObject == null)
-        {
-            return null;
-        }
-
-        return other.gameObject.GetComponent<PlayerControllerB>() ?? other.GetComponentInParent<PlayerControllerB>();
-    }
-
-    private static void Warn(string key, string message)
-    {
-        WarningCounts.TryGetValue(key, out int warningCount);
-        if (warningCount >= MaxWarnings)
-        {
-            return;
-        }
-
-        warningCount++;
-        WarningCounts[key] = warningCount;
-        Plugin.Log?.LogWarning($"{message} ({warningCount}/{MaxWarnings})");
+        return true;
     }
 }

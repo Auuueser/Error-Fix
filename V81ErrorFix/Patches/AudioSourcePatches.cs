@@ -12,6 +12,12 @@ internal static class DisabledAudioSourcePlayGuardPatch
     private static readonly WarningLimiter Warnings = new();
     private static readonly WarningLimiter GuardFailureWarnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.AudioSourcePlaybackGuardMode);
+    }
+
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
     {
@@ -88,11 +94,26 @@ internal static class AudioSourcePlayOneShotNullClipGuardPatch
     private static readonly WarningLimiter Warnings = new();
     private static readonly WarningLimiter GuardFailureWarnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.AudioSourcePlaybackGuardMode);
+    }
+
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
     {
-        yield return AccessTools.Method(typeof(AudioSource), "PlayOneShot", new[] { typeof(AudioClip) });
-        yield return AccessTools.Method(typeof(AudioSource), "PlayOneShot", new[] { typeof(AudioClip), typeof(float) });
+        MethodInfo playOneShot = AccessTools.Method(typeof(AudioSource), "PlayOneShot", new[] { typeof(AudioClip) });
+        if (playOneShot != null)
+        {
+            yield return playOneShot;
+        }
+
+        MethodInfo playOneShotWithScale = AccessTools.Method(typeof(AudioSource), "PlayOneShot", new[] { typeof(AudioClip), typeof(float) });
+        if (playOneShotWithScale != null)
+        {
+            yield return playOneShotWithScale;
+        }
     }
 
     private static bool Prefix(AudioSource __instance, AudioClip __0)

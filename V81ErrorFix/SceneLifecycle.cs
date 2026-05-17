@@ -24,23 +24,38 @@ internal static class SceneLifecycle
 
     private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        UnityKnownWarningFilterPatch.FlushSummary();
         AllowLifecycleDestroyWindow();
         StartOfRoundRefreshPlayerVoicePlaybackObjectsPatch.ClearCache();
+        TerminalAccessibleObjectUpdatePatch.ClearCache();
+        RoundManagerFindMainEntrancePositionPatch.ClearCache();
         ParticleMeshShapeGuard.NotifySceneLoaded();
         NetworkObjectDestroyGuardPatch.ClearCaches();
+        WarningLimiter.ClearSceneScopedLimiters();
+        NullRefGuard.Clear();
     }
 
     private static void OnSceneUnloaded(Scene scene)
     {
+        UnityKnownWarningFilterPatch.FlushSummary();
         AllowLifecycleDestroyWindow();
         StartOfRoundRefreshPlayerVoicePlaybackObjectsPatch.ClearCache();
+        TerminalAccessibleObjectUpdatePatch.ClearCache();
+        RoundManagerFindMainEntrancePositionPatch.ClearCache();
         ParticleMeshShapeGuard.NotifySceneUnloaded();
         NetworkObjectDestroyGuardPatch.ClearCaches();
+        WarningLimiter.ClearSceneScopedLimiters();
+        NullRefGuard.Clear();
     }
 
     private static void OnActiveSceneChanged(Scene previousScene, Scene newScene)
     {
+        UnityKnownWarningFilterPatch.FlushSummary();
         AllowLifecycleDestroyWindow();
+        TerminalAccessibleObjectUpdatePatch.ClearCache();
+        RoundManagerFindMainEntrancePositionPatch.ClearCache();
+        WarningLimiter.ClearSceneScopedLimiters();
+        NullRefGuard.Clear();
     }
 
     private static void AllowLifecycleDestroyWindow()

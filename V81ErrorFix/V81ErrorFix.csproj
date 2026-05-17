@@ -8,20 +8,34 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>build_tmpbin\</OutputPath>
     <IntermediateOutputPath>build_tmpobj\$(Configuration)\</IntermediateOutputPath>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
     <LethalCompanyDir Condition="'$(LethalCompanyDir)' == ''">$(LETHAL_COMPANY_DIR)</LethalCompanyDir>
-    <LethalCompanyDir Condition="'$(LethalCompanyDir)' == ''">D:\Steam\steamapps\common\Lethal Company</LethalCompanyDir>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(BEPINEX_CORE_DIR)</BepInExCoreDir>
     <ManagedDir>$(LethalCompanyDir)\Lethal Company_Data\Managed</ManagedDir>
     <BepInExCoreDir Condition="'$(BepInExCoreDir)' == '' And Exists('$(LethalCompanyDir)\BepInEx\core\BepInEx.dll')">$(LethalCompanyDir)\BepInEx\core</BepInExCoreDir>
   </PropertyGroup>
+  <Target Name="ValidateLocalReferencePaths" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(LethalCompanyDir)' == '' Or !Exists('$(ManagedDir)\Assembly-CSharp.dll')" Text="Set LethalCompanyDir to a local Lethal Company install containing Lethal Company_Data\Managed\Assembly-CSharp.dll." />
+    <Error Condition="'$(BepInExCoreDir)' == '' Or !Exists('$(BepInExCoreDir)\BepInEx.dll') Or !Exists('$(BepInExCoreDir)\0Harmony.dll')" Text="Set BepInExCoreDir to a local BepInEx core folder containing BepInEx.dll and 0Harmony.dll." />
+  </Target>
   <ItemGroup>
     <Compile Remove="obj\**\*.cs" />
     <Compile Remove="build_tmpobj\**\*.cs" />
     <Compile Remove="build_tmpbin\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="[0.4.3]" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
+      <Publicize>true</Publicize>
     </Reference>
     <Reference Include="BepInEx">
       <HintPath>$(BepInExCoreDir)\BepInEx.dll</HintPath>

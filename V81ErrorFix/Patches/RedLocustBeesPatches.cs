@@ -14,6 +14,10 @@ namespace V81ErrorFix;
 [HarmonyPatch(typeof(RedLocustBees), "IsHiveMissing")]
 internal static class RedLocustBeesIsHiveMissingPatch
 {
+    private const float HiveNearbyDistanceSqr = 4f * 4f;
+    private const float HiveVisibleDistanceSqr = 8f * 8f;
+    private const float HiveMovedDistanceSqr = 6f * 6f;
+
     private static bool Prefix(RedLocustBees __instance, ref bool __result)
     {
         if (__instance == null || __instance.eye == null || StartOfRound.Instance == null)
@@ -28,23 +32,23 @@ internal static class RedLocustBeesIsHiveMissingPatch
             return false;
         }
 
-        float distanceToLastKnownHive = Vector3.Distance(__instance.eye.position, __instance.lastKnownHivePosition);
-        if (!Traverse.Create(__instance).Field("syncedLastKnownHivePosition").GetValue<bool>())
+        float distanceToLastKnownHiveSqr = (__instance.eye.position - __instance.lastKnownHivePosition).sqrMagnitude;
+        if (!__instance.syncedLastKnownHivePosition)
         {
             __result = false;
             return false;
         }
 
-        bool canSeeLastKnownHive = distanceToLastKnownHive < 8f &&
+        bool canSeeLastKnownHive = distanceToLastKnownHiveSqr < HiveVisibleDistanceSqr &&
             !Physics.Linecast(
                 __instance.eye.position,
                 __instance.lastKnownHivePosition,
                 StartOfRound.Instance.collidersAndRoomMaskAndDefault,
                 QueryTriggerInteraction.Ignore);
 
-        if (distanceToLastKnownHive < 4f || canSeeLastKnownHive)
+        if (distanceToLastKnownHiveSqr < HiveNearbyDistanceSqr || canSeeLastKnownHive)
         {
-            if ((Vector3.Distance(__instance.hive.transform.position, __instance.lastKnownHivePosition) > 6f &&
+            if (((__instance.hive.transform.position - __instance.lastKnownHivePosition).sqrMagnitude > HiveMovedDistanceSqr &&
                  !IsHivePlacedAndInLOS(__instance)) ||
                 __instance.hive.isHeld)
             {
@@ -61,18 +65,30 @@ internal static class RedLocustBeesIsHiveMissingPatch
 
     private static Exception Finalizer(RedLocustBees __instance, Exception __exception)
     {
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
         return NullRefGuard.Suppress(__exception, "RedLocustBees.IsHiveMissing", () =>
             __instance == null || __instance.eye == null || StartOfRound.Instance == null || __instance.hive == null);
     }
 
     private static bool IsHivePlacedAndInLOS(RedLocustBees bees)
     {
+        const float HiveLineOfSightDistanceSqr = 9f * 9f;
+
         if (bees.hive == null || bees.eye == null || StartOfRound.Instance == null || bees.hive.isHeld)
         {
             return false;
         }
 
-        return Vector3.Distance(bees.eye.position, bees.hive.transform.position) <= 9f &&
+        return (bees.eye.position - bees.hive.transform.position).sqrMagnitude <= HiveLineOfSightDistanceSqr &&
             !Physics.Linecast(
                 bees.eye.position,
                 bees.hive.transform.position,
@@ -84,6 +100,8 @@ internal static class RedLocustBeesIsHiveMissingPatch
 [HarmonyPatch(typeof(RedLocustBees), "IsHivePlacedAndInLOS")]
 internal static class RedLocustBeesIsHivePlacedAndInLOSPatch
 {
+    private const float HiveLineOfSightDistanceSqr = 9f * 9f;
+
     private static bool Prefix(RedLocustBees __instance, ref bool __result)
     {
         if (__instance == null || __instance.hive == null || __instance.eye == null || StartOfRound.Instance == null || __instance.hive.isHeld)
@@ -92,7 +110,7 @@ internal static class RedLocustBeesIsHivePlacedAndInLOSPatch
             return false;
         }
 
-        __result = Vector3.Distance(__instance.eye.position, __instance.hive.transform.position) <= 9f &&
+        __result = (__instance.eye.position - __instance.hive.transform.position).sqrMagnitude <= HiveLineOfSightDistanceSqr &&
             !Physics.Linecast(
                 __instance.eye.position,
                 __instance.hive.transform.position,
@@ -103,6 +121,16 @@ internal static class RedLocustBeesIsHivePlacedAndInLOSPatch
 
     private static Exception Finalizer(RedLocustBees __instance, Exception __exception)
     {
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
         return NullRefGuard.Suppress(__exception, "RedLocustBees.IsHivePlacedAndInLOS", () =>
             __instance == null || __instance.hive == null || __instance.eye == null || StartOfRound.Instance == null);
     }
@@ -118,8 +146,7 @@ internal static class RedLocustBeesDoAIIntervalPatch
             return false;
         }
 
-        bool hasSpawnedHive = Traverse.Create(__instance).Field("hasSpawnedHive").GetValue<bool>();
-        if (!hasSpawnedHive || __instance.hive != null)
+        if (!__instance.hasSpawnedHive || __instance.hive != null)
         {
             return true;
         }
@@ -136,6 +163,16 @@ internal static class RedLocustBeesDoAIIntervalPatch
 
     private static Exception Finalizer(RedLocustBees __instance, Exception __exception)
     {
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
         return NullRefGuard.Suppress(__exception, "RedLocustBees.DoAIInterval", () =>
             __instance == null || StartOfRound.Instance == null || __instance.hive == null);
     }
@@ -161,6 +198,16 @@ internal static class RedLocustBeesUpdatePatch
 
     private static Exception Finalizer(RedLocustBees __instance, Exception __exception)
     {
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
         return NullRefGuard.Suppress(__exception, "RedLocustBees.Update", () =>
             __instance == null || StartOfRound.Instance == null || __instance.agent == null || __instance.beeParticles == null || __instance.beeParticlesTarget == null);
     }

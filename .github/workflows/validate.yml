@@ -4,12 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   repository-contents:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Reject generated or redistributed files
         shell: bash
@@ -17,13 +21,41 @@ jobs:
           set -euo pipefail
           forbidden="$(find . \
             -path './.git' -prune -o \
-            \( -iname '*.dll' -o -iname '*.pdb' -o -iname '*.zip' -o -iname '*.log' \) -print)"
+            \( \
+              -iname '*.bak' -o -iname '*.orig' -o \
+              -iname '*.dll' -o -iname '*.pdb' -o -iname '*.nupkg' -o \
+              -iname '*.zip' -o -iname '*.7z' -o -iname '*.rar' -o \
+              -iname '*.tar' -o -iname '*.tar.gz' -o -iname '*.tgz' -o -iname '*.gz' -o \
+              -iname '*.exe' -o -iname '*.so' -o -iname '*.dylib' -o \
+              -iname '*.log' \
+            \) -print)"
           forbidden_dirs="$(find . \
             -path './.git' -prune -o \
-            -type d \( -iname 'bin' -o -iname 'obj' -o -iname 'build_tmpbin' -o -iname 'build_tmpobj' -o -iname 'Assembly-CSharp' \) -print)"
+            -type d \( -iname 'bin' -o -iname 'obj' -o -iname 'build_tmpbin' -o -iname 'build_tmpobj' -o -iname 'Assembly-CSharp' -o -iname 'backup' -o -iname 'backups' \) -print)"
 
           if [ -n "$forbidden" ] || [ -n "$forbidden_dirs" ]; then
             printf 'Forbidden files:\n%s\n' "$forbidden"
             printf 'Forbidden directories:\n%s\n' "$forbidden_dirs"
             exit 1
           fi
+
+      - name: Static source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RIn --include='*.cs' 'Harmony\.CreateAndPatchAll' V81ErrorFix; then
+            echo "Use isolated per-class Harmony patch installation instead of CreateAndPatchAll."
+            exit 1
+          fi
+          if grep -RIn --include='*.cs' 'yield return AccessTools\.Method' V81ErrorFix/Patches; then
+            echo "AccessTools.Method results in TargetMethods must be null-checked before yielding."
+            exit 1
+          fi
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          global-json-file: global.json
+
+      - name: Restore locked NuGet packages
+        run: dotnet restore V81ErrorFix/V81ErrorFix.csproj --locked-mode -p:ContinuousIntegrationBuild=true

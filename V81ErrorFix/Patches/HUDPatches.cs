@@ -118,8 +118,15 @@ internal static class HUDManagerAddChatMessagePatch
 [HarmonyPatch(typeof(HUDManager), "AddTextMessageClientRpc")]
 internal static class HUDManagerAddTextMessageClientRpcPatch
 {
+    private static readonly WarningLimiter FinalizerWarnings = new(maxWarnings: 1);
+
     private static bool Prefix(HUDManager __instance)
     {
+        if (!IsExecutingClientRpc(__instance))
+        {
+            return true;
+        }
+
         if (HUDManagerAddChatMessagePatch.IsHudChatReady(__instance, out string missingDependency))
         {
             return true;
@@ -131,13 +138,28 @@ internal static class HUDManagerAddTextMessageClientRpcPatch
 
     private static Exception Finalizer(HUDManager __instance, Exception __exception)
     {
-        if (__exception is NullReferenceException && !HUDManagerAddChatMessagePatch.IsHudChatReady(__instance, out _))
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
+        if (!RpcExecStageUtility.ShouldAllowClientRpcSuppression(__instance, "HUDManager.AddTextMessageClientRpc", __exception, FinalizerWarnings))
+        {
+            return __exception;
+        }
+
+        if (!HUDManagerAddChatMessagePatch.IsHudChatReady(__instance, out _))
         {
             HUDManagerAddChatMessagePatch.Warn("Suppressed HUDManager.AddTextMessageClientRpc NullReferenceException while chat HUD was not ready.");
             return null;
         }
 
         return __exception;
+    }
+
+    private static bool IsExecutingClientRpc(HUDManager hudManager)
+    {
+        return RpcExecStageUtility.TryIsExecuting(hudManager, out bool isExecuting) && isExecuting;
     }
 }
 

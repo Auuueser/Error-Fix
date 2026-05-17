@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using HarmonyLib;
 using GameNetcodeStuff;
 
@@ -17,7 +16,23 @@ internal static class RadMechAISetExplosionPatch
 
     internal static Exception SuppressKnownException(Exception exception, string key, WarningLimiter warnings, Func<bool> isKnownSafeCase)
     {
-        if (exception is NullReferenceException && isKnownSafeCase != null && isKnownSafeCase())
+        if (exception is not NullReferenceException || isKnownSafeCase == null)
+        {
+            return exception;
+        }
+
+        bool knownSafe;
+        try
+        {
+            knownSafe = isKnownSafeCase();
+        }
+        catch (Exception ex)
+        {
+            warnings.Warn($"{key}|classifier-failed", $"Known dependency classifier failed for {key}; returning original NullReferenceException: {ex.GetType().Name}.");
+            return exception;
+        }
+
+        if (knownSafe)
         {
             warnings.Warn(key, $"Suppressed {key} NullReferenceException for a known missing dependency.");
             return null;
@@ -42,9 +57,16 @@ internal static class RadMechAISetExplosionPatch
 internal static class RadMechAISetExplosionClientRpcPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter NonExecuteStageWarnings = new(maxWarnings: 1);
 
     private static Exception Finalizer(RadMechAI __instance, Exception __exception)
     {
+        if (__exception is NullReferenceException &&
+            !RpcExecStageUtility.ShouldAllowClientRpcSuppression(__instance, "RadMechAI.SetExplosionClientRpc", __exception, NonExecuteStageWarnings))
+        {
+            return __exception;
+        }
+
         return RadMechAISetExplosionPatch.SuppressKnownException(__exception, "RadMechAI.SetExplosionClientRpc", Warnings, () => RadMechAISetExplosionPatch.HasKnownMissingExplosionDependency(__instance));
     }
 }
@@ -89,12 +111,10 @@ internal static class GrabbableObjectActivateItemRpcPatch
 
 internal static class JetpackItemKnownDependencyGuard
 {
-    private static readonly FieldInfo PreviousPlayerHeldByField = AccessTools.Field(typeof(JetpackItem), "previousPlayerHeldBy");
-
     internal static bool HasKnownMissingDeactivateDependency(JetpackItem jetpack)
     {
         return jetpack == null ||
-            GetPreviousPlayerHeldBy(jetpack) == null ||
+            jetpack.previousPlayerHeldBy == null ||
             jetpack.jetpackBeepsAudio == null ||
             jetpack.jetpackAudio == null ||
             jetpack.smokeTrailParticle == null;
@@ -107,10 +127,5 @@ internal static class JetpackItemKnownDependencyGuard
             jetpack.jetpackAudio == null ||
             jetpack.smokeTrailParticle == null ||
             (jetpack.streamlineJetpack && (StartOfRound.Instance == null || GameNetworkManager.Instance == null || GameNetworkManager.Instance.localPlayerController == null));
-    }
-
-    private static PlayerControllerB GetPreviousPlayerHeldBy(JetpackItem jetpack)
-    {
-        return jetpack != null && PreviousPlayerHeldByField != null ? PreviousPlayerHeldByField.GetValue(jetpack) as PlayerControllerB : null;
     }
 }

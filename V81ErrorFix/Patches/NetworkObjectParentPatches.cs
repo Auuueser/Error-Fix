@@ -13,24 +13,14 @@ internal static class NetworkObjectParentChangedPatch
     [HarmonyPrepare]
     private static bool Prepare()
     {
-        return TargetMethod() != null;
+        return PatchModeUtility.IsEnabled(ErrorFixConfig.NetworkObjectParentGuardMode)
+            && TargetMethod() != null;
     }
 
     [HarmonyTargetMethod]
     private static MethodBase TargetMethod()
     {
         return AccessTools.Method(typeof(NetworkObject), "OnTransformParentChanged");
-    }
-
-    private static bool Prefix(NetworkObject __instance)
-    {
-        if (__instance == null || __instance.IsSpawned)
-        {
-            return true;
-        }
-
-        Warnings.Warn(GetWarningKey(__instance), () => $"Skipped NetworkObject.OnTransformParentChanged for unspawned object '{GetObjectName(__instance)}' to avoid invalid reparent handling.");
-        return false;
     }
 
     private static Exception Finalizer(NetworkObject __instance, Exception __exception)

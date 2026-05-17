@@ -2,7 +2,7 @@
 
 Error Fix is a BepInEx/Harmony compatibility guard for Lethal Company. It mitigates known runtime exceptions and log spam from recurring null-reference, index, audio, particle, NavMesh, Netcode, and optional third-party compatibility cases observed in heavily modded V81-era setups.
 
-Version: `0.0.3`
+Version: `0.0.4`
 
 ## Scope
 
@@ -14,29 +14,43 @@ Error Fix is not affiliated with, endorsed by, or maintained by Zeekerss, Unity 
 
 ## Main fixes
 
-- Guards common Unity audio warnings such as disabled audio sources and null `AudioClip` playback.
-- Guards invalid particle mesh shape sources, including unreadable meshes and zero-area meshes.
+- Optionally guards common Unity audio warnings such as disabled audio sources and null `AudioClip` playback.
+- Filters exact known Unity warning spam for missing audio spatializer plugin setup, BoxCollider negative scale/size asset warnings, SteamValve empty AudioSource warnings, and duplicate Static Lighting Sky warnings by default.
+- Optionally guards invalid particle mesh shape sources, including unreadable meshes and zero-area meshes.
 - Filters unreadable mesh sources during runtime NavMesh source collection.
 - Adds a general `EnemyAI` NavMesh fallback for agents that try to move while off the NavMesh.
-- Guards known Netcode edge cases around client-side ragdoll destruction, unspawned object reparenting, and selected RPC null/index failures, with lifecycle-aware limits.
-- Guards player ragdoll tag lookups for undefined `PlayerRagdoll4+` tags without rewriting tags that are actually defined.
+- Optionally guards known Netcode edge cases around client-side ragdoll destruction, with lifecycle-aware limits; non-global Netcode guards remain active where targeted.
+- Optionally guards global player ragdoll tag lookups/setters for undefined `PlayerRagdoll4+` tags without rewriting tags that are actually defined.
 - Guards known item, suit, quicksand, entrance teleport, terminal, chat, ambience, jetpack, soccer ball, and enemy update errors.
 - Uses version-aware defaults for sensitive replacements such as `EntranceTeleport.Update`.
-- Keeps high-risk guards in `Auto` mode by default so verified game assemblies receive the guarded path while unknown assemblies fall back to vanilla unless explicitly enabled.
+- Keeps performance-sensitive global guards disabled by default, including `AudioSource.Play*`, global player-ragdoll tag lookup/setter hooks, the global `UnityEngine.Object.Destroy` hook, and particle mesh scene scans.
+- Uses `Auto` for targeted version-aware replacements where the verified game assembly can be checked before patching.
+- Installs Harmony patch classes independently so one failed patch target does not prevent unrelated guards from loading.
 - Leaves EnemyAI warp recovery disabled by default; off-NavMesh movement is still guarded, but position recovery must be enabled by configuration.
 
 For the full patch index, see [PatchCatalog.md](V81ErrorFix/PatchCatalog.md).
 
+## 0.0.4 focus
+
+Version `0.0.4` keeps the same defensive scope while reducing avoidable runtime cost and tightening RPC safety boundaries. Known Unity warning spam is filtered only by exact prefix and summarized at scene transitions, ClientRpc exception suppression remains limited to generated Execute-stage handling, and the experimental SteamValve `damageTrigger` spawn guard is opt-in rather than enabled by `Auto`.
+
 ## Configuration notes
 
 - Sensitive guards use `PatchEnableMode`: `Auto` enables verified game assemblies, `Enabled` forces the guard on, and `Disabled` turns it off.
-- `GlobalDestroyGuardMode` is the primary switch for the spawned ragdoll destroy guard.
+- `GlobalDestroyGuardMode=Enabled` is required to install the spawned ragdoll global destroy guard. `Auto` is treated as disabled for this global hook.
+- `AudioSourcePlaybackGuardMode`, `PlayerRagdollGlobalTagGuardMode`, and `ParticleMeshShapeGuardMode` also require `Enabled`; `Auto` is treated as disabled for these performance-sensitive global guards.
+- `KnownUnityWarningFilterMode=Enabled` is the default and installs a log-only filter for exact high-frequency Unity warning prefixes: missing audio spatializer plugin setup, BoxCollider negative scale/size asset warnings, SteamValve empty AudioSource warnings, and duplicate Static Lighting Sky warnings. It reports a compact per-scene summary of suppressed warning counts, does not repair the underlying plugin, collider, AudioSource, or lighting setup, and does not filter Netcode lifecycle warnings. Set it to `Disabled` while tracing the source of those warnings.
+- `NetworkObjectParentGuardMode=Auto` suppresses only the known unspawned Netcode reparent `SpawnStateException` on verified game assemblies.
+- `SteamValveDamageTriggerSpawnGuardMode` is disabled by default. The `damageTrigger is disabled` Netcode message is usually a one-time spawn lifecycle warning rather than a performance issue; enable this experimental guard only after confirming SteamValve `damageTrigger` gameplay is actually broken.
 - `EnableGlobalDestroyGuard` is retained as a legacy compatibility switch for older local configs.
+- `ParticleMeshShapeGuardDryRun=true` logs invalid particle mesh shapes without disabling them. The particle mesh guard scans once after scene load when explicitly enabled, not on a periodic timer.
+- Optional mod guards each have an `OptionalCompatibility` config entry and return unknown `NullReferenceException` cases to the original caller after logging a limited diagnostic.
+- Performance-sensitive global guards are evaluated during plugin startup. Change their config values before launching the game or restart after editing them.
 - EnemyAI warp recovery is disabled by default; enable `AllowEnemyAIWarp` only after testing it in the target modpack.
 
 ## Optional compatibility targets
 
-These compatibility guards are applied by reflection and only activate when the target mod type is present. They are not forks, redistributions, or modified builds of the listed projects. Error Fix does not bundle third-party mod DLLs, source code, package contents, or assets.
+These compatibility guards are applied by reflection and only activate when the target mod type and expected method signature are present. They are not forks, redistributions, or modified builds of the listed projects. Error Fix does not bundle third-party mod DLLs, source code, package contents, or assets. Unknown optional-mod exceptions are logged and returned rather than broadly suppressed.
 
 | Project | Compatibility case | Upstream license metadata |
 | --- | --- | --- |
@@ -51,8 +65,8 @@ Provide the local game path through `LethalCompanyDir` and the BepInEx core fold
 
 ```powershell
 dotnet build .\V81ErrorFix\V81ErrorFix.csproj `
-  -p:LethalCompanyDir="D:\Steam\steamapps\common\Lethal Company" `
-  -p:BepInExCoreDir="D:\1New R2modman modpacks\LethalCompany\profiles\V81 Test Version 1203a2\BepInEx\core"
+  -p:LethalCompanyDir="PATH_TO_LETHAL_COMPANY_INSTALL" `
+  -p:BepInExCoreDir="PATH_TO_BEPINEX_CORE"
 ```
 
 The project expects these local files:
@@ -62,7 +76,13 @@ The project expects these local files:
 
 Do not copy BepInEx or Harmony files into the Steam game directory just to build this project.
 
-Build output is written to `V81ErrorFix\build_tmpbin`. The repository intentionally does not track compiled DLLs, game assemblies, decompiled game source, Thunderstore package contents, third-party mod binaries, or local build artifacts.
+The build uses `BepInEx.AssemblyPublicizer.MSBuild` only at compile time so selected `Assembly-CSharp` members can be accessed directly instead of through hot-path private-field reflection. The package is excluded from runtime assets and is not bundled with the mod output.
+
+NuGet restore uses `packages.lock.json` and the repository `global.json` pins the .NET SDK used by CI. CI runs locked restore and NuGet audit, but full compilation remains a local step because the GitHub runner does not have Lethal Company or BepInEx assemblies.
+
+`NuGet.config` restricts restore to nuget.org with package source mapping for the build-time publicizer package. Local build paths must come from MSBuild properties, environment variables, or a local untracked `Directory.Build.props`; the project no longer falls back to a machine-specific Steam install path.
+
+Build output is written to `V81ErrorFix\build_tmpbin`. The repository intentionally does not track compiled DLLs, game assemblies, decompiled game source, backup files, archives, NuGet packages, Thunderstore package contents, third-party mod binaries, or local build artifacts.
 
 ## Repository contents
 

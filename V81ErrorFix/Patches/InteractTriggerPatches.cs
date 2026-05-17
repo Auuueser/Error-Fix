@@ -16,9 +16,15 @@ internal static class InteractTriggerUpdateUsedByPlayerClientRpcPatch
 {
     private const int MaxWarnings = 5;
     private static int _warningCount;
+    private static readonly WarningLimiter FinalizerWarnings = new(maxWarnings: 1);
 
     private static bool Prefix(InteractTrigger __instance, int playerNum)
     {
+        if (!IsExecutingClientRpc(__instance))
+        {
+            return true;
+        }
+
         if (IsInteractRpcReady(__instance, playerNum, out string missingDependency))
         {
             return true;
@@ -30,7 +36,17 @@ internal static class InteractTriggerUpdateUsedByPlayerClientRpcPatch
 
     private static Exception Finalizer(InteractTrigger __instance, int playerNum, Exception __exception)
     {
-        if (__exception is NullReferenceException && !IsInteractRpcReady(__instance, playerNum, out _))
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
+        if (!RpcExecStageUtility.ShouldAllowClientRpcSuppression(__instance, "InteractTrigger.UpdateUsedByPlayerClientRpc", __exception, FinalizerWarnings))
+        {
+            return __exception;
+        }
+
+        if (!IsInteractRpcReady(__instance, playerNum, out _))
         {
             Warn("Suppressed InteractTrigger.UpdateUsedByPlayerClientRpc NullReferenceException while trigger dependencies were not ready.");
             return null;
@@ -115,5 +131,10 @@ internal static class InteractTriggerUpdateUsedByPlayerClientRpcPatch
 
         _warningCount++;
         Plugin.Log?.LogWarning($"{message} ({_warningCount}/{MaxWarnings})");
+    }
+
+    private static bool IsExecutingClientRpc(InteractTrigger trigger)
+    {
+        return RpcExecStageUtility.TryIsExecuting(trigger, out bool isExecuting) && isExecuting;
     }
 }

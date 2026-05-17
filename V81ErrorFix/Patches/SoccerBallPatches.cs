@@ -8,6 +8,7 @@ namespace V81ErrorFix;
 internal static class GrabbableObjectPhysicsTriggerOnTriggerEnterPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
 
     private static bool Prefix(GrabbableObjectPhysicsTrigger __instance, Collider other)
     {
@@ -20,15 +21,36 @@ internal static class GrabbableObjectPhysicsTriggerOnTriggerEnterPatch
         return false;
     }
 
-    private static Exception Finalizer(Exception __exception)
+    private static Exception Finalizer(GrabbableObjectPhysicsTrigger __instance, Collider other, Exception __exception)
     {
-        if (__exception is NullReferenceException)
+        if (__exception is not NullReferenceException)
         {
-            Warnings.Warn("nre", "Suppressed GrabbableObjectPhysicsTrigger.OnTriggerEnter NullReferenceException.");
+            return __exception;
+        }
+
+        if (__instance?.itemScript == null || other?.gameObject == null)
+        {
+            Warnings.Warn("nre|missing-trigger-dependency", "Suppressed GrabbableObjectPhysicsTrigger.OnTriggerEnter NullReferenceException after known missing itemScript or collider dependencies were detected.");
             return null;
         }
 
+        UnknownWarnings.Warn($"nre|unknown|{__exception.GetType().Name}", () => $"Unhandled GrabbableObjectPhysicsTrigger.OnTriggerEnter NullReferenceException; returning original exception. First stack fingerprint: {Fingerprint(__exception)}. First detail: {__exception}");
         return __exception;
+    }
+
+    private static string Fingerprint(Exception exception)
+    {
+        string stackTrace = exception?.StackTrace;
+        if (!string.IsNullOrEmpty(stackTrace))
+        {
+            string[] stackLines = stackTrace.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            if (stackLines.Length > 0)
+            {
+                return stackLines[0];
+            }
+        }
+
+        return exception?.GetType().Name ?? "unknown";
     }
 }
 
@@ -36,6 +58,7 @@ internal static class GrabbableObjectPhysicsTriggerOnTriggerEnterPatch
 internal static class SoccerBallPropActivatePhysicsTriggerPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
 
     private static bool Prefix(SoccerBallProp __instance, Collider other)
     {
@@ -48,7 +71,7 @@ internal static class SoccerBallPropActivatePhysicsTriggerPatch
         GameObject otherObject = other.gameObject;
         if (!IsPlayerOrEnemy(otherObject))
         {
-            return false;
+            return true;
         }
 
         if (StartOfRound.Instance == null)
@@ -57,30 +80,68 @@ internal static class SoccerBallPropActivatePhysicsTriggerPatch
             return false;
         }
 
-        Vector3 hitPosition = otherObject.transform.position + Vector3.up;
-        Vector3 ballPosition = __instance.transform.position + Vector3.up * 0.5f;
-        if (!Physics.Linecast(hitPosition, ballPosition, StartOfRound.Instance.collidersAndRoomMaskAndDefault, QueryTriggerInteraction.Ignore))
-        {
-            __instance.BeginKickBall(hitPosition, otherObject.CompareTag("Enemy"));
-        }
-
-        return false;
+        return true;
     }
 
-    private static Exception Finalizer(Exception __exception)
+    private static Exception Finalizer(SoccerBallProp __instance, Collider other, Exception __exception)
     {
-        if (__exception is NullReferenceException)
+        if (__exception is not NullReferenceException)
         {
-            Warnings.Warn("nre", "Suppressed SoccerBallProp.ActivatePhysicsTrigger NullReferenceException.");
+            return __exception;
+        }
+
+        if (IsKnownSafeActivateNre(__instance, other, out string reason))
+        {
+            Warnings.Warn($"nre|{reason}", $"Suppressed SoccerBallProp.ActivatePhysicsTrigger NullReferenceException after known unsafe trigger dependencies were detected: {reason}.");
             return null;
         }
 
+        UnknownWarnings.Warn($"nre|unknown|{__exception.GetType().Name}", () => $"Unhandled SoccerBallProp.ActivatePhysicsTrigger NullReferenceException; returning original exception. First stack fingerprint: {Fingerprint(__exception)}. First detail: {__exception}");
         return __exception;
+    }
+
+    private static bool IsKnownSafeActivateNre(SoccerBallProp ball, Collider other, out string reason)
+    {
+        if (ball == null)
+        {
+            reason = "ball was null";
+            return true;
+        }
+
+        if (other?.gameObject == null)
+        {
+            reason = "collider or collider GameObject was missing";
+            return true;
+        }
+
+        if (IsPlayerOrEnemy(other.gameObject) && StartOfRound.Instance == null)
+        {
+            reason = "StartOfRound.Instance was missing for a player/enemy trigger";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
     }
 
     private static bool IsPlayerOrEnemy(GameObject gameObject)
     {
         return gameObject != null && (gameObject.CompareTag("Player") || gameObject.CompareTag("Enemy"));
+    }
+
+    private static string Fingerprint(Exception exception)
+    {
+        string stackTrace = exception?.StackTrace;
+        if (!string.IsNullOrEmpty(stackTrace))
+        {
+            string[] stackLines = stackTrace.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            if (stackLines.Length > 0)
+            {
+                return stackLines[0];
+            }
+        }
+
+        return exception?.GetType().Name ?? "unknown";
     }
 }
 
@@ -88,6 +149,7 @@ internal static class SoccerBallPropActivatePhysicsTriggerPatch
 internal static class SoccerBallPropBeginKickBallPatch
 {
     private static readonly WarningLimiter Warnings = new();
+    private static readonly WarningLimiter UnknownWarnings = new();
 
     private static bool Prefix(SoccerBallProp __instance, bool hitByEnemy)
     {
@@ -105,22 +167,34 @@ internal static class SoccerBallPropBeginKickBallPatch
         return false;
     }
 
-    private static Exception Finalizer(Exception __exception)
+    private static Exception Finalizer(SoccerBallProp __instance, Exception __exception)
     {
-        if (__exception is NullReferenceException)
+        if (__exception is not NullReferenceException)
         {
-            Warnings.Warn("nre", "Suppressed SoccerBallProp.BeginKickBall NullReferenceException.");
+            return __exception;
+        }
+
+        if (HasKnownUnsafeKickDependencies(__instance, out string reason))
+        {
+            Warnings.Warn($"nre|{reason}", $"Suppressed SoccerBallProp.BeginKickBall NullReferenceException after known unsafe kick dependencies were detected: {reason}.");
             return null;
         }
 
+        UnknownWarnings.Warn($"nre|unknown|{__exception.GetType().Name}", () => $"Unhandled SoccerBallProp.BeginKickBall NullReferenceException; returning original exception. First stack fingerprint: {Fingerprint(__exception)}. First detail: {__exception}");
         return __exception;
     }
 
     private static bool HasRequiredKickDependencies(SoccerBallProp ball)
     {
+        return !HasKnownUnsafeKickDependencies(ball, out _);
+    }
+
+    private static bool HasKnownUnsafeKickDependencies(SoccerBallProp ball, out string reason)
+    {
         if (ball == null || ball.transform == null || ball.itemProperties == null)
         {
-            return false;
+            reason = "ball, transform, or itemProperties was missing";
+            return true;
         }
 
         StartOfRound startOfRound = StartOfRound.Instance;
@@ -128,13 +202,36 @@ internal static class SoccerBallPropBeginKickBallPatch
         GameNetworkManager gameNetworkManager = GameNetworkManager.Instance;
         if (startOfRound == null || roundManager == null || gameNetworkManager?.localPlayerController == null)
         {
-            return false;
+            reason = "round, start-of-round, or local player dependencies were missing";
+            return true;
         }
 
-        return startOfRound.elevatorTransform != null
-            && startOfRound.propsContainer != null
-            && startOfRound.shipBounds != null
-            && startOfRound.shipInnerRoomBounds != null
-            && roundManager.spawnedScrapContainer != null;
+        if (startOfRound.elevatorTransform == null ||
+            startOfRound.propsContainer == null ||
+            startOfRound.shipBounds == null ||
+            startOfRound.shipInnerRoomBounds == null ||
+            roundManager.spawnedScrapContainer == null)
+        {
+            reason = "ship bounds or scrap container dependencies were missing";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private static string Fingerprint(Exception exception)
+    {
+        string stackTrace = exception?.StackTrace;
+        if (!string.IsNullOrEmpty(stackTrace))
+        {
+            string[] stackLines = stackTrace.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            if (stackLines.Length > 0)
+            {
+                return stackLines[0];
+            }
+        }
+
+        return exception?.GetType().Name ?? "unknown";
     }
 }

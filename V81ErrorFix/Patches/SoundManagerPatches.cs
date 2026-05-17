@@ -22,11 +22,11 @@ internal static class SoundManagerPlayAmbienceClipLocalPatch
         }
     }
 
-    private static Exception Finalizer(int soundType, int clipIndex, bool playInsanitySounds, Exception __exception)
+    private static Exception Finalizer(SoundManager __instance, int soundType, int clipIndex, bool playInsanitySounds, Exception __exception)
     {
-        if (__exception is IndexOutOfRangeException)
+        if (__exception is IndexOutOfRangeException && IsAmbienceClipInvalid(__instance, soundType, clipIndex, playInsanitySounds, out int clipCount))
         {
-            Warnings.Warn($"index-exception|{soundType}|{playInsanitySounds}", $"Suppressed SoundManager.PlayAmbienceClipLocal IndexOutOfRangeException for soundType {soundType}, clipIndex {clipIndex}, playInsanitySounds={playInsanitySounds}.");
+            Warnings.Warn($"index-exception|{soundType}|{playInsanitySounds}", $"Suppressed SoundManager.PlayAmbienceClipLocal IndexOutOfRangeException for known invalid clip soundType {soundType}, clipIndex {clipIndex}, playInsanitySounds={playInsanitySounds}, clipCount={clipCount}.");
             return null;
         }
 
@@ -97,5 +97,40 @@ internal static class SoundManagerPlayAmbienceClipLocalPatch
     private static void WarnInvalidIndex(int soundType, int clipIndex, bool playInsanitySounds, int clipCount)
     {
         Warnings.Warn($"invalid-index|{soundType}|{playInsanitySounds}", $"Skipped SoundManager.PlayAmbienceClipLocal because soundType {soundType}, clipIndex {clipIndex}, playInsanitySounds={playInsanitySounds} was outside clip count {clipCount} or the clip was missing.");
+    }
+
+    private static bool IsAmbienceClipInvalid(SoundManager soundManager, int soundType, int clipIndex, bool playInsanitySounds, out int clipCount)
+    {
+        clipCount = 0;
+        if (soundManager == null || soundManager.currentLevelAmbience == null)
+        {
+            return false;
+        }
+
+        LevelAmbienceLibrary ambience = soundManager.currentLevelAmbience;
+        if (playInsanitySounds)
+        {
+            RandomAudioClip[] clips = soundType switch
+            {
+                0 => ambience.insideAmbienceInsanity,
+                1 => ambience.outsideAmbienceInsanity,
+                2 => ambience.shipAmbienceInsanity,
+                _ => null
+            };
+
+            clipCount = clips?.Length ?? 0;
+            return clips != null && (clipIndex < 0 || clipIndex >= clips.Length);
+        }
+
+        AudioClip[] normalClips = soundType switch
+        {
+            0 => ambience.insideAmbience,
+            1 => ambience.outsideAmbience,
+            2 => ambience.shipAmbience,
+            _ => null
+        };
+
+        clipCount = normalClips?.Length ?? 0;
+        return normalClips != null && (clipIndex < 0 || clipIndex >= normalClips.Length);
     }
 }

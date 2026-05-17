@@ -18,11 +18,28 @@ internal static class NetworkObjectDestroyGuardPatch
     private static bool _loggedBlockedDestroyStackTrace;
     private static float _nextWarningCacheCleanupTime;
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return ShouldPatch(
+            ErrorFixConfig.GlobalDestroyGuardMode?.Value ?? PatchEnableMode.Disabled,
+            ErrorFixConfig.EnableGlobalDestroyGuard?.Value ?? false);
+    }
+
     [HarmonyTargetMethods]
     private static IEnumerable<MethodBase> TargetMethods()
     {
-        yield return AccessTools.Method(typeof(UnityEngine.Object), "Destroy", new[] { typeof(UnityEngine.Object) });
-        yield return AccessTools.Method(typeof(UnityEngine.Object), "Destroy", new[] { typeof(UnityEngine.Object), typeof(float) });
+        MethodInfo destroy = AccessTools.Method(typeof(UnityEngine.Object), "Destroy", new[] { typeof(UnityEngine.Object) });
+        if (destroy != null)
+        {
+            yield return destroy;
+        }
+
+        MethodInfo destroyDelayed = AccessTools.Method(typeof(UnityEngine.Object), "Destroy", new[] { typeof(UnityEngine.Object), typeof(float) });
+        if (destroyDelayed != null)
+        {
+            yield return destroyDelayed;
+        }
     }
 
     private static bool Prefix(UnityEngine.Object obj)
@@ -40,16 +57,6 @@ internal static class NetworkObjectDestroyGuardPatch
 
     private static bool ShouldAllowDestroy(UnityEngine.Object obj)
     {
-        if (!PatchModeUtility.IsEnabled(ErrorFixConfig.GlobalDestroyGuardMode))
-        {
-            return true;
-        }
-
-        if (ErrorFixConfig.EnableGlobalDestroyGuard != null && !ErrorFixConfig.EnableGlobalDestroyGuard.Value)
-        {
-            return true;
-        }
-
         if (obj == null || NetworkManager.Singleton == null || NetworkManager.Singleton.IsServer)
         {
             return true;
@@ -91,6 +98,13 @@ internal static class NetworkObjectDestroyGuardPatch
 
         WarnBlockedDestroy(networkObject);
         return false;
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool legacySwitchEnabled)
+    {
+        // This is a global UnityEngine.Object.Destroy hook, so Auto intentionally remains off.
+        // Enabled is an explicit operator choice and is not tied to verified Assembly-CSharp.
+        return legacySwitchEnabled && mode == PatchEnableMode.Enabled;
     }
 
     internal static void ClearCaches()

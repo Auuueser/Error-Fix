@@ -31,15 +31,22 @@ internal static class BushWolfEnemyUpdatePatch
 
     private static Exception Finalizer(BushWolfEnemy __instance, Exception __exception)
     {
-        if (__exception is NullReferenceException)
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
+        if (__instance != null)
         {
             try
             {
-                if (__instance != null)
-                {
-                    __instance.targetPlayer = null;
-                    __instance.movingTowardsTargetPlayer = false;
-                }
+                __instance.targetPlayer = null;
+                __instance.movingTowardsTargetPlayer = false;
             }
             catch
             {
@@ -77,6 +84,16 @@ internal static class BushWolfEnemyLateUpdatePatch
 
     private static Exception Finalizer(BushWolfEnemy __instance, Exception __exception)
     {
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
         return NullRefGuard.Suppress(__exception, "BushWolfEnemy.LateUpdate", () =>
             __instance == null ||
             StartOfRound.Instance == null ||

@@ -24,6 +24,16 @@ internal static class DocileLocustBeesAIUpdatePatch
 
     private static Exception Finalizer(DocileLocustBeesAI __instance, Exception __exception)
     {
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
         return NullRefGuard.Suppress(__exception, "DocileLocustBeesAI.Update", () =>
             __instance == null ||
             StartOfRound.Instance == null ||
@@ -55,7 +65,17 @@ internal static class CrawlerAIUpdatePatch
 
     private static Exception Finalizer(CrawlerAI __instance, Exception __exception)
     {
-        if (__exception is NullReferenceException && __instance != null)
+        if (__exception == null)
+        {
+            return null;
+        }
+
+        if (__exception is not NullReferenceException)
+        {
+            return __exception;
+        }
+
+        if (__instance != null)
         {
             try
             {
