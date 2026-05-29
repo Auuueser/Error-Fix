@@ -4,9 +4,33 @@ using GameNetcodeStuff;
 
 namespace V81ErrorFix;
 
+internal static class GameplayEnemyUpdatePatchGate
+{
+    internal static bool ShouldPatch(PatchEnableMode mode)
+    {
+        return mode == PatchEnableMode.Enabled;
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool isVerifiedAssembly)
+    {
+        return mode == PatchEnableMode.Enabled;
+    }
+
+    internal static bool ShouldPatchConfigured()
+    {
+        return ShouldPatch(ErrorFixConfig.GameplayEnemyUpdateGuardMode?.Value ?? PatchEnableMode.Disabled);
+    }
+}
+
 [HarmonyPatch(typeof(DocileLocustBeesAI), "Update")]
 internal static class DocileLocustBeesAIUpdatePatch
 {
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(DocileLocustBeesAI __instance)
     {
         if (__instance == null || StartOfRound.Instance == null || StartOfRound.Instance.activeCamera == null || __instance.bugsEffect == null || __instance.creatureVoice == null || __instance.scanNode == null)
@@ -48,6 +72,12 @@ internal static class DocileLocustBeesAIUpdatePatch
 [HarmonyPatch(typeof(CrawlerAI), "Update")]
 internal static class CrawlerAIUpdatePatch
 {
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(CrawlerAI __instance)
     {
         if (__instance == null || StartOfRound.Instance == null || GameNetworkManager.Instance == null || GameNetworkManager.Instance.localPlayerController == null)

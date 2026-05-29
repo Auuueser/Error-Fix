@@ -17,8 +17,24 @@ public sealed class Plugin : BaseUnityPlugin
     private void Awake()
     {
         Log = Logger;
-        ErrorFixConfig.Bind(Config);
+        PatchEnableMode runtimePatchMode = ErrorFixConfig.BindRuntimePatchMode(Config).Value;
+        if (runtimePatchMode == PatchEnableMode.Disabled)
+        {
+            Logger.LogInfo($"{PluginName} {PluginVersion} loaded passive. RuntimePatchMode=Disabled; no Harmony patches, scene lifecycle hooks, extra config bindings, or Assembly-CSharp verification.");
+            return;
+        }
+
         GameAssemblyIdentity.Initialize();
+        if (!ShouldInstallRuntimePatches(runtimePatchMode, GameAssemblyIdentity.IsVerified))
+        {
+            Logger.LogInfo(
+                $"{PluginName} {PluginVersion} loaded passive. RuntimePatchMode={runtimePatchMode}; " +
+                $"no Harmony patches or scene lifecycle hooks installed. Assembly verified: {GameAssemblyIdentity.IsVerified}; " +
+                $"MVID: {GameAssemblyIdentity.CurrentAssemblyMvid}; SHA256: {GameAssemblyIdentity.CurrentAssemblySha256 ?? "unknown"}.");
+            return;
+        }
+
+        ErrorFixConfig.Bind(Config);
         SceneLifecycle.Register();
         PatchAllWithIsolation(new Harmony(PluginGuid));
         if (PatchModeUtility.IsExplicitlyEnabled(ErrorFixConfig.ParticleMeshShapeGuardMode))
@@ -29,11 +45,24 @@ public sealed class Plugin : BaseUnityPlugin
         Logger.LogInfo(
             $"Performance-sensitive guards: AudioSource={ErrorFixConfig.AudioSourcePlaybackGuardMode.Value}; " +
             $"KnownUnityWarningFilter={ErrorFixConfig.KnownUnityWarningFilterMode.Value}; " +
+            $"KnownBepInExLogNoiseFilter={ErrorFixConfig.KnownBepInExLogNoiseFilterMode.Value}; " +
             $"PlayerRagdollGlobalTag={ErrorFixConfig.PlayerRagdollGlobalTagGuardMode.Value}; " +
             $"ParticleMeshShape={ErrorFixConfig.ParticleMeshShapeGuardMode.Value}; " +
+            $"PlayerNearOtherPlayers={ErrorFixConfig.PlayerNearOtherPlayersGuardMode.Value}; " +
+            $"TerminalAccessibleObjectUpdate={ErrorFixConfig.TerminalAccessibleObjectUpdateGuardMode.Value}; " +
+            $"EntranceTeleportUpdate={ErrorFixConfig.EntranceTeleportUpdateGuardMode.Value}; " +
+            $"GameplayEnemyUpdate={ErrorFixConfig.GameplayEnemyUpdateGuardMode.Value}; " +
+            $"UnlockableSuitUpdate={ErrorFixConfig.UnlockableSuitUpdateGuardMode.Value}; " +
+            $"EnemyAINavMesh={ErrorFixConfig.EnemyAINavMeshGuardMode.Value} " +
+            $"(installed={EnemyAINavMeshGuardPatch.ShouldPatch(ErrorFixConfig.EnemyAINavMeshGuardMode.Value, ErrorFixConfig.EnableEnemyAINavMeshGuard.Value)}); " +
             $"GlobalDestroy={ErrorFixConfig.GlobalDestroyGuardMode.Value} " +
             $"(installed={NetworkObjectDestroyGuardPatch.ShouldPatch(ErrorFixConfig.GlobalDestroyGuardMode.Value, ErrorFixConfig.EnableGlobalDestroyGuard.Value)}).");
         Logger.LogInfo($"{PluginName} {PluginVersion} loaded. Assembly verified: {GameAssemblyIdentity.IsVerified}; MVID: {GameAssemblyIdentity.CurrentAssemblyMvid}; SHA256: {GameAssemblyIdentity.CurrentAssemblySha256 ?? "unknown"}.");
+    }
+
+    internal static bool ShouldInstallRuntimePatches(PatchEnableMode mode, bool isVerifiedAssembly)
+    {
+        return mode == PatchEnableMode.Enabled || (mode == PatchEnableMode.Auto && isVerifiedAssembly);
     }
 
     private void PatchAllWithIsolation(Harmony harmony)

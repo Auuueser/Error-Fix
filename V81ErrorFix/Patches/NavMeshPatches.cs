@@ -105,6 +105,14 @@ internal static class EnemyAINavMeshGuardPatch
     private static readonly Dictionary<int, float> NextRecoveryAttemptTimes = new();
     private static float _nextRecoveryCacheCleanupTime;
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return ShouldPatch(
+            ErrorFixConfig.EnemyAINavMeshGuardMode?.Value ?? PatchEnableMode.Disabled,
+            ErrorFixConfig.EnableEnemyAINavMeshGuard?.Value ?? false);
+    }
+
     private static bool Prefix(EnemyAI __instance)
     {
         try
@@ -121,7 +129,9 @@ internal static class EnemyAINavMeshGuardPatch
 
     private static bool GuardEnemyAIInterval(EnemyAI enemy)
     {
-        if (ErrorFixConfig.EnableEnemyAINavMeshGuard != null && !ErrorFixConfig.EnableEnemyAINavMeshGuard.Value)
+        if (!ShouldPatch(
+                ErrorFixConfig.EnemyAINavMeshGuardMode?.Value ?? PatchEnableMode.Disabled,
+                ErrorFixConfig.EnableEnemyAINavMeshGuard?.Value ?? false))
         {
             return true;
         }
@@ -319,5 +329,12 @@ internal static class EnemyAINavMeshGuardPatch
         {
             Warn(GetEnemyName(enemy), $"Skipped EnemyAI position sync after NavMesh guard because it failed safely: {ex.GetType().Name}.");
         }
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool legacySwitchEnabled)
+    {
+        // This patch sits on EnemyAI.DoAIInterval, so Auto intentionally remains off.
+        // Enabled is an explicit operator choice and is not tied to verified Assembly-CSharp.
+        return legacySwitchEnabled && mode == PatchEnableMode.Enabled;
     }
 }

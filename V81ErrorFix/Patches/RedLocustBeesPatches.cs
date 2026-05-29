@@ -18,6 +18,12 @@ internal static class RedLocustBeesIsHiveMissingPatch
     private const float HiveVisibleDistanceSqr = 8f * 8f;
     private const float HiveMovedDistanceSqr = 6f * 6f;
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(RedLocustBees __instance, ref bool __result)
     {
         if (__instance == null || __instance.eye == null || StartOfRound.Instance == null)
@@ -102,6 +108,12 @@ internal static class RedLocustBeesIsHivePlacedAndInLOSPatch
 {
     private const float HiveLineOfSightDistanceSqr = 9f * 9f;
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(RedLocustBees __instance, ref bool __result)
     {
         if (__instance == null || __instance.hive == null || __instance.eye == null || StartOfRound.Instance == null || __instance.hive.isHeld)
@@ -139,6 +151,12 @@ internal static class RedLocustBeesIsHivePlacedAndInLOSPatch
 [HarmonyPatch(typeof(RedLocustBees), "DoAIInterval")]
 internal static class RedLocustBeesDoAIIntervalPatch
 {
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(RedLocustBees __instance)
     {
         if (__instance == null || StartOfRound.Instance == null)
@@ -181,6 +199,12 @@ internal static class RedLocustBeesDoAIIntervalPatch
 [HarmonyPatch(typeof(RedLocustBees), "Update")]
 internal static class RedLocustBeesUpdatePatch
 {
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(RedLocustBees __instance)
     {
         if (__instance == null || StartOfRound.Instance == null)

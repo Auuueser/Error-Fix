@@ -11,10 +11,12 @@ internal static class UnityKnownWarningFilterPatch
 {
     private const string AudioSpatializerWarningPrefix = "Audio source failed to initialize audio spatializer.";
     private const string BoxColliderNegativeScaleWarningPrefix = "BoxCollider does not support negative scale or size.";
+    private const string DisabledAudioSourceWarningPrefix = "Can not play a disabled audio source";
     private const string SteamValveEmptyAudioSourceWarningPrefix = "Only custom filters can be played. Please add a custom filter or an audioclip to the audiosource (SteamValve(Clone)).";
     private const string StaticLightingSkyWarningPrefix = "One Static Lighting Sky component was already set for baking, only the latest one will be used.";
     private static int audioSpatializerFilteredCount;
     private static int boxColliderFilteredCount;
+    private static int disabledAudioSourceFilteredCount;
     private static int steamValveEmptyAudioSourceFilteredCount;
     private static int staticLightingSkyFilteredCount;
 
@@ -59,10 +61,12 @@ internal static class UnityKnownWarningFilterPatch
     {
         int audioSpatializerCount = Interlocked.Exchange(ref audioSpatializerFilteredCount, 0);
         int boxColliderCount = Interlocked.Exchange(ref boxColliderFilteredCount, 0);
+        int disabledAudioSourceCount = Interlocked.Exchange(ref disabledAudioSourceFilteredCount, 0);
         int steamValveEmptyAudioSourceCount = Interlocked.Exchange(ref steamValveEmptyAudioSourceFilteredCount, 0);
         int staticLightingSkyCount = Interlocked.Exchange(ref staticLightingSkyFilteredCount, 0);
         if (audioSpatializerCount == 0 &&
             boxColliderCount == 0 &&
+            disabledAudioSourceCount == 0 &&
             steamValveEmptyAudioSourceCount == 0 &&
             staticLightingSkyCount == 0)
         {
@@ -73,8 +77,14 @@ internal static class UnityKnownWarningFilterPatch
             "Known Unity warning filter suppressed warnings since the last scene change: " +
             $"audioSpatializer={audioSpatializerCount}, " +
             $"boxColliderNegativeScale={boxColliderCount}, " +
+            $"disabledAudioSource={disabledAudioSourceCount}, " +
             $"steamValveEmptyAudioSource={steamValveEmptyAudioSourceCount}, " +
             $"staticLightingSky={staticLightingSkyCount}.");
+    }
+
+    internal static bool ShouldFilterMessageForTest(string message)
+    {
+        return ShouldFilter(message, out _);
     }
 
     private static bool ShouldFilter(string message, out KnownUnityWarning warning)
@@ -92,6 +102,9 @@ internal static class UnityKnownWarningFilterPatch
                 return true;
             case 'B' when message.StartsWith(BoxColliderNegativeScaleWarningPrefix, StringComparison.Ordinal):
                 warning = KnownUnityWarning.BoxColliderNegativeScale;
+                return true;
+            case 'C' when message.StartsWith(DisabledAudioSourceWarningPrefix, StringComparison.Ordinal):
+                warning = KnownUnityWarning.DisabledAudioSource;
                 return true;
             case 'O' when message.StartsWith(SteamValveEmptyAudioSourceWarningPrefix, StringComparison.Ordinal):
                 warning = KnownUnityWarning.SteamValveEmptyAudioSource;
@@ -114,6 +127,9 @@ internal static class UnityKnownWarningFilterPatch
             case KnownUnityWarning.BoxColliderNegativeScale:
                 Interlocked.Increment(ref boxColliderFilteredCount);
                 break;
+            case KnownUnityWarning.DisabledAudioSource:
+                Interlocked.Increment(ref disabledAudioSourceFilteredCount);
+                break;
             case KnownUnityWarning.SteamValveEmptyAudioSource:
                 Interlocked.Increment(ref steamValveEmptyAudioSourceFilteredCount);
                 break;
@@ -128,6 +144,7 @@ internal static class UnityKnownWarningFilterPatch
         None,
         AudioSpatializer,
         BoxColliderNegativeScale,
+        DisabledAudioSource,
         SteamValveEmptyAudioSource,
         StaticLightingSky
     }

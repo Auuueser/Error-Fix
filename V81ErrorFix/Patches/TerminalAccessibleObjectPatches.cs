@@ -13,6 +13,12 @@ internal static class TerminalAccessibleObjectUpdatePatch
     private static readonly WarningLimiter Warnings = new();
     private static readonly Dictionary<int, float> NextInitializeAttemptTimes = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return ShouldPatch(ErrorFixConfig.TerminalAccessibleObjectUpdateGuardMode?.Value ?? PatchEnableMode.Disabled);
+    }
+
     private static bool Prefix(TerminalAccessibleObject __instance)
     {
         if (__instance == null || GameNetworkManager.Instance == null || GameNetworkManager.Instance.localPlayerController == null || StartOfRound.Instance == null || StartOfRound.Instance.mapScreen == null)
@@ -93,6 +99,16 @@ internal static class TerminalAccessibleObjectUpdatePatch
     internal static void ClearCache()
     {
         NextInitializeAttemptTimes.Clear();
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode)
+    {
+        return mode == PatchEnableMode.Enabled;
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool isVerifiedAssembly)
+    {
+        return mode == PatchEnableMode.Enabled;
     }
 
     private static bool CanAttemptInitialize(TerminalAccessibleObject terminalObject)

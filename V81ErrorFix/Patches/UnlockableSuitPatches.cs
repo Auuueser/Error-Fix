@@ -14,9 +14,15 @@ internal static class UnlockableSuitUpdatePatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return IsUpdatePatchEnabled();
+    }
+
     private static bool Prefix(UnlockableSuit __instance)
     {
-        if (!IsPatchEnabled())
+        if (!IsUpdatePatchEnabled())
         {
             return true;
         }
@@ -55,7 +61,7 @@ internal static class UnlockableSuitUpdatePatch
 
     private static Exception Finalizer(UnlockableSuit __instance, Exception __exception)
     {
-        if (!IsPatchEnabled())
+        if (!IsUpdatePatchEnabled())
         {
             return __exception;
         }
@@ -90,6 +96,21 @@ internal static class UnlockableSuitUpdatePatch
     internal static bool IsPatchEnabled()
     {
         return PatchModeUtility.IsEnabled(ErrorFixConfig.UnlockableSuitGuardMode);
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode)
+    {
+        return mode == PatchEnableMode.Enabled;
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool isVerifiedAssembly)
+    {
+        return mode == PatchEnableMode.Enabled;
+    }
+
+    private static bool IsUpdatePatchEnabled()
+    {
+        return ShouldPatch(ErrorFixConfig.UnlockableSuitUpdateGuardMode?.Value ?? PatchEnableMode.Disabled);
     }
 }
 

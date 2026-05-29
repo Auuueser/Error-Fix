@@ -14,6 +14,12 @@ namespace V81ErrorFix;
 [HarmonyPatch(typeof(BushWolfEnemy), "Update")]
 internal static class BushWolfEnemyUpdatePatch
 {
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(BushWolfEnemy __instance)
     {
         if (__instance == null || StartOfRound.Instance == null)
@@ -61,6 +67,12 @@ internal static class BushWolfEnemyUpdatePatch
 [HarmonyPatch(typeof(BushWolfEnemy), "LateUpdate")]
 internal static class BushWolfEnemyLateUpdatePatch
 {
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return GameplayEnemyUpdatePatchGate.ShouldPatchConfigured();
+    }
+
     private static bool Prefix(BushWolfEnemy __instance)
     {
         if (__instance == null || StartOfRound.Instance == null)

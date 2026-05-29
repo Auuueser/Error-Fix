@@ -11,6 +11,7 @@ internal enum PatchEnableMode
 
 internal static class ErrorFixConfig
 {
+    internal static ConfigEntry<PatchEnableMode> RuntimePatchMode;
     internal static ConfigEntry<bool> EnableGlobalDestroyGuard;
     internal static ConfigEntry<PatchEnableMode> GlobalDestroyGuardMode;
     internal static ConfigEntry<bool> AllowDestroyDuringSceneUnload;
@@ -18,27 +19,45 @@ internal static class ErrorFixConfig
     internal static ConfigEntry<bool> LogBlockedDestroyStackTraceOnce;
     internal static ConfigEntry<PatchEnableMode> AudioSourcePlaybackGuardMode;
     internal static ConfigEntry<PatchEnableMode> KnownUnityWarningFilterMode;
+    internal static ConfigEntry<PatchEnableMode> KnownBepInExLogNoiseFilterMode;
     internal static ConfigEntry<PatchEnableMode> PlayerRagdollGlobalTagGuardMode;
     internal static ConfigEntry<PatchEnableMode> ParticleMeshShapeGuardMode;
     internal static ConfigEntry<bool> ParticleMeshShapeGuardDryRun;
     internal static ConfigEntry<PatchEnableMode> EntranceTeleportUpdateGuardMode;
     internal static ConfigEntry<PatchEnableMode> FindMainEntrancePositionFallbackMode;
+    internal static ConfigEntry<PatchEnableMode> PlayerNearOtherPlayersGuardMode;
+    internal static ConfigEntry<PatchEnableMode> TerminalAccessibleObjectUpdateGuardMode;
+    internal static ConfigEntry<PatchEnableMode> GameplayEnemyUpdateGuardMode;
     internal static ConfigEntry<PatchEnableMode> ThrowObjectClientRpcGuardMode;
     internal static ConfigEntry<PatchEnableMode> VoiceRefreshFallbackMode;
     internal static ConfigEntry<PatchEnableMode> UnlockableSuitGuardMode;
+    internal static ConfigEntry<PatchEnableMode> UnlockableSuitUpdateGuardMode;
     internal static ConfigEntry<PatchEnableMode> NetworkObjectParentGuardMode;
     internal static ConfigEntry<PatchEnableMode> SteamValveDamageTriggerSpawnGuardMode;
     internal static ConfigEntry<PatchEnableMode> EnemyHealthBarsLateUpdateGuardMode;
     internal static ConfigEntry<PatchEnableMode> ShipLootPlusUiHelperGuardMode;
     internal static ConfigEntry<PatchEnableMode> NightVisionInsideLightingPostfixGuardMode;
     internal static ConfigEntry<PatchEnableMode> ChatCommandsStartHostPostfixGuardMode;
+    internal static ConfigEntry<PatchEnableMode> EnemyAINavMeshGuardMode;
     internal static ConfigEntry<bool> EnableEnemyAINavMeshGuard;
     internal static ConfigEntry<bool> AllowEnemyAIWarp;
     internal static ConfigEntry<float> EnemyAINavMeshMaxWarpRadius;
     internal static ConfigEntry<bool> EnemyAINavMeshHostServerOnly;
 
+    internal static ConfigEntry<PatchEnableMode> BindRuntimePatchMode(ConfigFile config)
+    {
+        RuntimePatchMode = config.Bind(
+            "Performance",
+            "RuntimePatchMode",
+            PatchEnableMode.Enabled,
+            "Master switch for all Error Fix runtime Harmony patches and scene lifecycle hooks. Disabled leaves the DLL loaded but installs no runtime patches, binds no other ErrorFix settings, and skips Assembly-CSharp verification; use this for FPS baseline testing against an installed-but-passive ErrorFix. Requires restart.");
+        return RuntimePatchMode;
+    }
+
     internal static void Bind(ConfigFile config)
     {
+        BindRuntimePatchMode(config);
+
         EnableGlobalDestroyGuard = config.Bind(
             "NetworkObjectDestroy",
             "EnableGlobalDestroyGuard",
@@ -79,7 +98,13 @@ internal static class ErrorFixConfig
             "Performance",
             "KnownUnityWarningFilterMode",
             PatchEnableMode.Enabled,
-            "Enabled by default to suppress high-frequency Unity log spam for missing audio spatializer plugin setup, BoxCollider negative scale/size asset warnings, the SteamValve(Clone) custom-filter AudioSource warning, and duplicate Static Lighting Sky baking warnings. This is log-only and does not repair the underlying audio plugin, collider geometry, AudioSource setup, or lighting setup. It filters only those exact warning prefixes, does not filter Netcode NetworkVariable lifecycle warnings, and requires restart.");
+            "Enabled by default to suppress high-frequency Unity log spam for missing audio spatializer plugin setup, BoxCollider negative scale/size asset warnings, disabled AudioSource playback, the SteamValve(Clone) custom-filter AudioSource warning, and duplicate Static Lighting Sky baking warnings. This is log-only and does not repair the underlying audio plugin, collider geometry, AudioSource setup, or lighting setup. It filters only those exact warning prefixes, does not filter Netcode NetworkVariable lifecycle warnings, and requires restart.");
+
+        KnownBepInExLogNoiseFilterMode = config.Bind(
+            "Performance",
+            "KnownBepInExLogNoiseFilterMode",
+            PatchEnableMode.Enabled,
+            "Enabled by default to suppress exact known low-value BepInEx log noise from RuntimeIcons, PathfindingLib, and LethalPerformance. Error and exception logs are not filtered. Requires restart.");
 
         PlayerRagdollGlobalTagGuardMode = config.Bind(
             "Performance",
@@ -102,14 +127,32 @@ internal static class ErrorFixConfig
         EntranceTeleportUpdateGuardMode = config.Bind(
             "EntranceTeleport",
             "EntranceTeleportUpdateGuardMode",
-            PatchEnableMode.Auto,
-            "Auto enables the guarded EntranceTeleport.Update replacement only for the verified game assembly.");
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the EntranceTeleport.Update hot-path replacement. Auto is treated as disabled to avoid per-frame entrance overhead. Requires restart.");
 
         FindMainEntrancePositionFallbackMode = config.Bind(
             "EntranceTeleport",
             "FindMainEntrancePositionFallbackMode",
             PatchEnableMode.Auto,
             "Auto enables the guarded RoundManager.FindMainEntrancePosition fallback only for the verified game assembly. Disabled preserves vanilla origin fallback.");
+
+        PlayerNearOtherPlayersGuardMode = config.Bind(
+            "PlayerControllerB",
+            "PlayerNearOtherPlayersGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the PlayerControllerB.NearOtherPlayers hot-path guard. Auto is treated as disabled to avoid per-frame local-player proximity overhead. Requires restart.");
+
+        TerminalAccessibleObjectUpdateGuardMode = config.Bind(
+            "TerminalAccessibleObject",
+            "TerminalAccessibleObjectUpdateGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the TerminalAccessibleObject.Update hot-path guard. Auto is treated as disabled to avoid per-frame terminal object initialization checks. Requires restart.");
+
+        GameplayEnemyUpdateGuardMode = config.Bind(
+            "Performance",
+            "GameplayEnemyUpdateGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs enemy Update/LateUpdate hot-path guards for BushWolf, Crawler, DocileLocustBees, and RedLocustBees. Auto is treated as disabled to avoid per-enemy frame overhead. Requires restart.");
 
         ThrowObjectClientRpcGuardMode = config.Bind(
             "PlayerControllerB",
@@ -129,6 +172,12 @@ internal static class ErrorFixConfig
             PatchEnableMode.Auto,
             "Auto enables suit/unlockable sync guards only for the verified game assembly. Enabled forces them on; Disabled turns them off.");
 
+        UnlockableSuitUpdateGuardMode = config.Bind(
+            "UnlockableSuit",
+            "UnlockableSuitUpdateGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the UnlockableSuit.Update hot-path guard. Auto is treated as disabled to avoid per-suit frame overhead. Requires restart.");
+
         NetworkObjectParentGuardMode = config.Bind(
             "NetworkObjectParent",
             "NetworkObjectParentGuardMode",
@@ -144,20 +193,20 @@ internal static class ErrorFixConfig
         EnemyHealthBarsLateUpdateGuardMode = config.Bind(
             "OptionalCompatibility",
             "EnemyHealthBarsLateUpdateGuardMode",
-            PatchEnableMode.Auto,
-            "Auto enables the EnemyHealthBars HealthBar.LateUpdate compatibility guard only on a verified game assembly when the expected target signature is present. Enabled forces it on; Disabled turns it off.");
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the EnemyHealthBars HealthBar.LateUpdate compatibility guard. Auto is treated as disabled to avoid optional-mod per-frame overhead.");
 
         ShipLootPlusUiHelperGuardMode = config.Bind(
             "OptionalCompatibility",
             "ShipLootPlusUiHelperGuardMode",
-            PatchEnableMode.Auto,
-            "Auto enables the ShipLootPlus UiHelper compatibility guard only on a verified game assembly when at least one expected target signature is present. Enabled forces it on; Disabled turns it off.");
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the ShipLootPlus UiHelper compatibility guard. Auto is treated as disabled to avoid optional-mod UI refresh overhead.");
 
         NightVisionInsideLightingPostfixGuardMode = config.Bind(
             "OptionalCompatibility",
             "NightVisionInsideLightingPostfixGuardMode",
-            PatchEnableMode.Auto,
-            "Auto enables the ToggleableNightVision InsideLightingPostfix compatibility guard only on a verified game assembly when the expected target signature is present. Enabled forces it on; Disabled turns it off.");
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the ToggleableNightVision InsideLightingPostfix compatibility guard. Auto is treated as disabled to avoid optional-mod lighting update overhead.");
 
         ChatCommandsStartHostPostfixGuardMode = config.Bind(
             "OptionalCompatibility",
@@ -165,11 +214,17 @@ internal static class ErrorFixConfig
             PatchEnableMode.Auto,
             "Auto enables the ChatCommands StartHost postfix compatibility guard only on a verified game assembly when the expected target signature is present. Enabled forces it on; Disabled turns it off.");
 
+        EnemyAINavMeshGuardMode = config.Bind(
+            "EnemyAI.NavMesh",
+            "EnemyAINavMeshGuardMode",
+            PatchEnableMode.Disabled,
+            "Only Enabled installs the EnemyAI.DoAIInterval hot-path guard. Auto is treated as disabled to avoid per-enemy AI tick overhead. Requires restart.");
+
         EnableEnemyAINavMeshGuard = config.Bind(
             "EnemyAI.NavMesh",
             "EnableEnemyAINavMeshGuard",
             true,
-            "Suppresses known EnemyAI SetDestination errors when an agent is off the NavMesh.");
+            "Legacy switch for the EnemyAI NavMesh guard. EnemyAINavMeshGuardMode can also disable this patch. Requires restart.");
 
         AllowEnemyAIWarp = config.Bind(
             "EnemyAI.NavMesh",

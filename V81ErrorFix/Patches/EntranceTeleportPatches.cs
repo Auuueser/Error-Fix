@@ -13,6 +13,12 @@ internal static class EntranceTeleportUpdatePatch
     private static readonly WarningLimiter Warnings = new();
     private static readonly ConditionalWeakTable<EntranceTeleport, HoverTipState> HoverTipStates = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return ShouldPatch(ErrorFixConfig.EntranceTeleportUpdateGuardMode?.Value ?? PatchEnableMode.Disabled);
+    }
+
     private static bool Prefix(EntranceTeleport __instance)
     {
         if (!IsPatchEnabled())
@@ -120,7 +126,17 @@ internal static class EntranceTeleportUpdatePatch
 
     private static bool IsPatchEnabled()
     {
-        return PatchModeUtility.IsEnabled(ErrorFixConfig.EntranceTeleportUpdateGuardMode);
+        return ShouldPatch(ErrorFixConfig.EntranceTeleportUpdateGuardMode?.Value ?? PatchEnableMode.Disabled);
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode)
+    {
+        return mode == PatchEnableMode.Enabled;
+    }
+
+    internal static bool ShouldPatch(PatchEnableMode mode, bool isVerifiedAssembly)
+    {
+        return mode == PatchEnableMode.Enabled;
     }
 
     private static void SaveDefaultHoverTip(EntranceTeleport entrance, InteractTrigger trigger)

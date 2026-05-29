@@ -25,6 +25,7 @@ internal static class SceneLifecycle
     private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         UnityKnownWarningFilterPatch.FlushSummary();
+        BepInExKnownLogNoiseFilterPatch.FlushSummary();
         AllowLifecycleDestroyWindow();
         StartOfRoundRefreshPlayerVoicePlaybackObjectsPatch.ClearCache();
         TerminalAccessibleObjectUpdatePatch.ClearCache();
@@ -38,6 +39,7 @@ internal static class SceneLifecycle
     private static void OnSceneUnloaded(Scene scene)
     {
         UnityKnownWarningFilterPatch.FlushSummary();
+        BepInExKnownLogNoiseFilterPatch.FlushSummary();
         AllowLifecycleDestroyWindow();
         StartOfRoundRefreshPlayerVoicePlaybackObjectsPatch.ClearCache();
         TerminalAccessibleObjectUpdatePatch.ClearCache();
@@ -51,6 +53,7 @@ internal static class SceneLifecycle
     private static void OnActiveSceneChanged(Scene previousScene, Scene newScene)
     {
         UnityKnownWarningFilterPatch.FlushSummary();
+        BepInExKnownLogNoiseFilterPatch.FlushSummary();
         AllowLifecycleDestroyWindow();
         TerminalAccessibleObjectUpdatePatch.ClearCache();
         RoundManagerFindMainEntrancePositionPatch.ClearCache();

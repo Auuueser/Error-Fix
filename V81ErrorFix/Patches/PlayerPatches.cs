@@ -11,18 +11,17 @@ internal static class PlayerControllerBNearOtherPlayersPatch
 {
     private static readonly WarningLimiter Warnings = new();
 
+    [HarmonyPrepare]
+    private static bool Prepare()
+    {
+        return ShouldPatch(ErrorFixConfig.PlayerNearOtherPlayersGuardMode?.Value ?? PatchEnableMode.Disabled);
+    }
+
     private static bool Prefix(PlayerControllerB __instance, float checkRadius, ref bool __result)
     {
         try
         {
-            if (!HasUnsafeDependencies(__instance, out string reason))
-            {
-                return true;
-            }
-
-            bool runOriginal = CheckNearOtherPlayersSafely(__instance, checkRadius, ref __result);
-            Warnings.Warn($"near-other-players|{reason}", $"Used safe PlayerControllerB.NearOtherPlayers fallback because {reason}.");
-            return runOriginal;
+            return CheckNearOtherPlayersSafely(__instance, checkRadius, ref __result);
         }
         catch (Exception ex)
         {
@@ -32,45 +31,14 @@ internal static class PlayerControllerBNearOtherPlayersPatch
         }
     }
 
-    private static bool HasUnsafeDependencies(PlayerControllerB player, out string reason)
+    internal static bool ShouldPatch(PatchEnableMode mode)
     {
-        if (player == null)
-        {
-            reason = "player was null";
-            return true;
-        }
+        return mode == PatchEnableMode.Enabled;
+    }
 
-        if (player.transform == null)
-        {
-            reason = "player transform was missing";
-            return true;
-        }
-
-        if (StartOfRound.Instance == null || StartOfRound.Instance.allPlayerScripts == null)
-        {
-            reason = "StartOfRound player list was missing";
-            return true;
-        }
-
-        PlayerControllerB[] players = StartOfRound.Instance.allPlayerScripts;
-        for (int i = 0; i < players.Length; i++)
-        {
-            PlayerControllerB otherPlayer = players[i];
-            if (otherPlayer == null)
-            {
-                reason = $"allPlayerScripts[{i}] was null";
-                return true;
-            }
-
-            if (otherPlayer != player && otherPlayer.isPlayerControlled && otherPlayer.transform == null)
-            {
-                reason = $"allPlayerScripts[{i}].transform was missing";
-                return true;
-            }
-        }
-
-        reason = string.Empty;
-        return false;
+    internal static bool ShouldPatch(PatchEnableMode mode, bool isVerifiedAssembly)
+    {
+        return mode == PatchEnableMode.Enabled;
     }
 
     private static bool CheckNearOtherPlayersSafely(PlayerControllerB __instance, float checkRadius, ref bool __result)

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Changed the `EnemyAI.DoAIInterval` NavMesh guard to explicit opt-in through `EnemyAINavMeshGuardMode=Enabled`, removing its per-enemy AI tick Harmony overhead from the default configuration.
+- Changed targeted per-frame hot-path guards to explicit opt-in through `Enabled`: `PlayerControllerB.NearOtherPlayers`, `TerminalAccessibleObject.Update`, `EntranceTeleport.Update`, `UnlockableSuit.Update`, and gameplay enemy `Update`/`LateUpdate` patches. `Auto` is treated as disabled for these guards to protect average FPS and 99th percentile FPS by default.
+- Added `RuntimePatchMode`, a master runtime patch switch. `Disabled` leaves the plugin DLL loaded but installs no Harmony patches, scene lifecycle hooks, extra config bindings, or Assembly-CSharp verification, allowing direct FPS baseline testing against an installed-but-passive ErrorFix.
+- Added exact-source BepInEx log noise filtering for high-volume `RuntimeIcons`, `PathfindingLib`, and `LethalPerformance` messages observed in the test profile. Error and exception logs are not filtered.
+- Extended known Unity warning filtering to include the repeated disabled AudioSource playback warning.
+- Fixed Assembly-CSharp verification when `Assembly.Location` is empty by falling back to the BepInEx managed assembly path.
+
 ## 0.0.4 - 2026-05-17
 
 Maintenance release focused on lower runtime overhead, clearer Unity warning handling, and stricter RPC safety boundaries.
