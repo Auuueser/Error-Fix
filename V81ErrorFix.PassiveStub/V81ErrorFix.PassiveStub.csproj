@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>V81ErrorFix</AssemblyName>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>build_tmpbin\</OutputPath>
+    <IntermediateOutputPath>build_tmpobj\$(Configuration)\</IntermediateOutputPath>
+    <LethalCompanyDir Condition="'$(LethalCompanyDir)' == ''">$(LETHAL_COMPANY_DIR)</LethalCompanyDir>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(BEPINEX_CORE_DIR)</BepInExCoreDir>
+    <ManagedDir>$(LethalCompanyDir)\Lethal Company_Data\Managed</ManagedDir>
+  </PropertyGroup>
+  <Target Name="ValidateLocalReferencePaths" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(BepInExCoreDir)' == '' Or !Exists('$(BepInExCoreDir)\BepInEx.dll')" Text="Set BepInExCoreDir to a local BepInEx core folder containing BepInEx.dll." />
+    <Error Condition="'$(LethalCompanyDir)' == '' Or !Exists('$(ManagedDir)\UnityEngine.dll') Or !Exists('$(ManagedDir)\UnityEngine.CoreModule.dll')" Text="Set LethalCompanyDir to a local Lethal Company install containing Lethal Company_Data\Managed UnityEngine assemblies." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCoreDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(ManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
