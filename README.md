@@ -2,7 +2,7 @@
 
 Error Fix is a BepInEx/Harmony compatibility guard for Lethal Company. It mitigates known runtime exceptions and log spam from recurring null-reference, index, audio, particle, NavMesh, Netcode, and optional third-party compatibility cases observed in heavily modded V81-era setups.
 
-Version: `0.0.4`
+Version: `0.0.5`
 
 ## Scope
 
@@ -31,15 +31,14 @@ Error Fix is not affiliated with, endorsed by, or maintained by Zeekerss, Unity 
 
 For the full patch index, see [PatchCatalog.md](V81ErrorFix/PatchCatalog.md).
 
-## 0.0.4 focus
+## 0.0.5 focus
 
-Version `0.0.4` keeps the same defensive scope while reducing avoidable runtime cost and tightening RPC safety boundaries. Known Unity warning spam is filtered only by exact prefix and summarized at scene transitions, ClientRpc exception suppression remains limited to generated Execute-stage handling, and the experimental SteamValve `damageTrigger` spawn guard is opt-in rather than enabled by `Auto`.
+Version `0.0.5` keeps the functional Error Fix guard set while making default runtime behavior more conservative for average FPS and 99th percentile FPS. High-frequency `Update` and AI tick replacements now require explicit `Enabled`, `RuntimePatchMode` provides a master passive baseline for comparison testing, and known log-noise filtering covers the high-volume messages observed in large V81 modpacks without hiding Error or exception logs.
 
 ## Configuration notes
 
 - Sensitive guards use `PatchEnableMode`: `Auto` enables selected version-aware non-hot-path guards on verified game assemblies, `Enabled` forces a guard on, and `Disabled` turns it off.
 - `RuntimePatchMode=Disabled` is the master passive mode for FPS baseline testing. It leaves the DLL loaded but installs no Harmony patches, registers no scene lifecycle hooks, binds no extra ErrorFix settings, and skips Assembly-CSharp verification. Use this when comparing installed ErrorFix against no ErrorFix.
-- `V81ErrorFix.PassiveStub` is a diagnostic project that builds a replacement `V81ErrorFix.dll` containing only the BepInEx plugin shell. It is for local FPS isolation only, not the functional release build.
 - `GlobalDestroyGuardMode=Enabled` is required to install the spawned ragdoll global destroy guard. `Auto` is treated as disabled for this global hook.
 - `AudioSourcePlaybackGuardMode`, `PlayerRagdollGlobalTagGuardMode`, `ParticleMeshShapeGuardMode`, `PlayerNearOtherPlayersGuardMode`, `TerminalAccessibleObjectUpdateGuardMode`, `EntranceTeleportUpdateGuardMode`, `UnlockableSuitUpdateGuardMode`, `GameplayEnemyUpdateGuardMode`, `EnemyHealthBarsLateUpdateGuardMode`, `ShipLootPlusUiHelperGuardMode`, and `NightVisionInsideLightingPostfixGuardMode` require explicit `Enabled`; `Auto` is treated as disabled for these performance-sensitive global or hot-path guards.
 - `KnownUnityWarningFilterMode=Enabled` is the default and installs a log-only filter for exact high-frequency Unity warning prefixes: missing audio spatializer plugin setup, BoxCollider negative scale/size asset warnings, disabled AudioSource playback warnings, SteamValve empty AudioSource warnings, and duplicate Static Lighting Sky warnings. It reports a compact per-scene summary of suppressed warning counts, does not repair the underlying plugin, collider, AudioSource, or lighting setup, and does not filter Netcode lifecycle warnings. Set it to `Disabled` while tracing the source of those warnings.

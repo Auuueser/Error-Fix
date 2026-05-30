@@ -8,6 +8,7 @@ backups/
 *.suo
 *.rsuser
 .vs/
+.codegraph/
 Directory.Build.props
 *.bak
 *.orig
